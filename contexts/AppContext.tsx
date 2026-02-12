@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Module, Theme } from '../types';
 import { DEFAULT_THEME, MOCK_MODULES } from '../constants';
+import { db } from '../firebase';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, increment, writeBatch } from 'firebase/firestore';
 
 interface AppContextType {
   modules: Module[];
@@ -11,28 +13,56 @@ interface AppContextType {
   deleteModule: (id: string) => void;
   getModule: (id: string) => Module | undefined;
   incrementModuleView: (id: string) => void;
+  resetToDefaults: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [modules, setModules] = useState<Module[]>(() => {
-    const saved = localStorage.getItem('lms_modules');
-    return saved ? JSON.parse(saved) : MOCK_MODULES;
-  });
-
+  const [modules, setModules] = useState<Module[]>([]);
+  
+  // Theme state is kept in localStorage to avoid unnecessary DB reads/writes for user preference
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('lms_theme');
     return saved ? JSON.parse(saved) : DEFAULT_THEME;
   });
 
+  // Load Modules (Firebase or LocalStorage)
   useEffect(() => {
-    localStorage.setItem('lms_modules', JSON.stringify(modules));
-  }, [modules]);
+    if (db) {
+      // Firebase Mode
+      try {
+        const unsubscribe = onSnapshot(collection(db, 'modules'), (snapshot) => {
+          const fetchedModules = snapshot.docs.map(doc => doc.data() as Module);
+          fetchedModules.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
+          setModules(fetchedModules);
+        }, (error) => {
+          console.error("Error connecting to Firebase:", error);
+        });
+        return () => unsubscribe();
+      } catch (err) {
+        console.error("Firebase connection failed", err);
+      }
+    } else {
+      // LocalStorage Fallback
+      const saved = localStorage.getItem('lms_modules');
+      if (saved) {
+        setModules(JSON.parse(saved));
+      } else {
+        setModules(MOCK_MODULES);
+      }
+    }
+  }, []);
 
+  // Helper to persist to LocalStorage (only used when db is null)
+  const saveToLocalStorage = (newModules: Module[]) => {
+    setModules(newModules);
+    localStorage.setItem('lms_modules', JSON.stringify(newModules));
+  };
+
+  // Persist theme to CSS vars
   useEffect(() => {
     localStorage.setItem('lms_theme', JSON.stringify(theme));
-    // Apply theme to CSS variables
     const root = document.documentElement;
     root.style.setProperty('--primary', theme.primary);
     root.style.setProperty('--bg-color', theme.background);
@@ -45,29 +75,100 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setTheme(prev => ({ ...prev, ...newTheme }));
   };
 
-  const addModule = (module: Module) => {
-    setModules(prev => [module, ...prev]);
+  const addModule = async (module: Module) => {
+    if (db) {
+      try {
+        await setDoc(doc(db, 'modules', module.id), module);
+      } catch (error) {
+        console.error("Error adding module: ", error);
+        alert("Failed to save module to database.");
+      }
+    } else {
+      const newModules = [module, ...modules];
+      saveToLocalStorage(newModules);
+    }
   };
 
-  const updateModule = (id: string, updatedData: Partial<Module>) => {
-    setModules(prev => prev.map(m => m.id === id ? { ...m, ...updatedData, lastUpdated: Date.now() } : m));
+  const updateModule = async (id: string, updatedData: Partial<Module>) => {
+    if (db) {
+      try {
+        const moduleRef = doc(db, 'modules', id);
+        await updateDoc(moduleRef, {
+          ...updatedData,
+          lastUpdated: Date.now()
+        });
+      } catch (error) {
+        console.error("Error updating module: ", error);
+      }
+    } else {
+      const newModules = modules.map(m => 
+        m.id === id ? { ...m, ...updatedData, lastUpdated: Date.now() } : m
+      );
+      saveToLocalStorage(newModules);
+    }
   };
 
-  const deleteModule = (id: string) => {
-    setModules(prev => prev.filter(m => m.id !== id));
+  const deleteModule = async (id: string) => {
+    if (db) {
+      try {
+        await deleteDoc(doc(db, 'modules', id));
+      } catch (error) {
+        console.error("Error deleting module: ", error);
+      }
+    } else {
+      const newModules = modules.filter(m => m.id !== id);
+      saveToLocalStorage(newModules);
+    }
   };
 
   const getModule = (id: string) => {
     return modules.find(m => m.id === id);
   };
 
-  const incrementModuleView = (id: string) => {
-    setModules(prev => prev.map(m => {
-      if (m.id === id) {
-        return { ...m, stats: { ...m.stats, views: m.stats.views + 1 } };
+  const incrementModuleView = async (id: string) => {
+    if (db) {
+      try {
+        const moduleRef = doc(db, 'modules', id);
+        await updateDoc(moduleRef, {
+          'stats.views': increment(1)
+        });
+      } catch (error) {
+        console.error("Error updating stats: ", error);
       }
-      return m;
-    }));
+    } else {
+      const newModules = modules.map(m => 
+        m.id === id 
+          ? { ...m, stats: { ...m.stats, views: m.stats.views + 1 } } 
+          : m
+      );
+      saveToLocalStorage(newModules);
+    }
+  };
+
+  const resetToDefaults = async () => {
+    if (db) {
+      try {
+        const batch = writeBatch(db);
+        // Delete existing
+        modules.forEach(m => {
+          const ref = doc(db!, 'modules', m.id);
+          batch.delete(ref);
+        });
+        // Add Defaults
+        MOCK_MODULES.forEach(m => {
+          const ref = doc(db!, 'modules', m.id);
+          batch.set(ref, m);
+        });
+        await batch.commit();
+        alert("Database reset to default modules successfully.");
+      } catch (error) {
+        console.error("Error resetting database: ", error);
+        alert("Failed to reset database.");
+      }
+    } else {
+      saveToLocalStorage(MOCK_MODULES);
+      alert("Local storage reset to default modules.");
+    }
   };
 
   return (
@@ -79,7 +180,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updateModule,
       deleteModule,
       getModule,
-      incrementModuleView
+      incrementModuleView,
+      resetToDefaults
     }}>
       {children}
     </AppContext.Provider>

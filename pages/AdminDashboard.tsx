@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Copy, Eye, Image as ImageIcon, Download } from 'lucide-react';
+import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Copy, Eye, Image as ImageIcon, Download, Globe, ArrowRight, RefreshCw, Import } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { ThemeCustomizer } from '../components/ThemeCustomizer';
+import { Module } from '../types';
 
 export const AdminDashboard: React.FC = () => {
-  const { modules, deleteModule } = useAppContext();
+  const { modules, deleteModule, resetToDefaults, addModule } = useAppContext();
   const navigate = useNavigate();
+  const [remoteUrl, setRemoteUrl] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
 
   const copyLink = (id: string) => {
     const url = `${window.location.origin}${window.location.pathname}#/view/${id}`;
@@ -24,6 +27,51 @@ export const AdminDashboard: React.FC = () => {
     downloadAnchorNode.remove();
   };
 
+  const handleLoadRemote = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!remoteUrl) return;
+    navigate(`/view/external?url=${encodeURIComponent(remoteUrl)}`);
+  };
+
+  const handleImportRemote = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!remoteUrl) return;
+    
+    setIsImporting(true);
+    try {
+      const response = await fetch(remoteUrl);
+      if (!response.ok) throw new Error('Failed to fetch module');
+      
+      const moduleData: Module = await response.json();
+      
+      // Basic validation
+      if (!moduleData.id || !moduleData.title || !moduleData.slides) {
+        throw new Error('Invalid module format. JSON must contain id, title, and slides.');
+      }
+      
+      // Ensure ID is unique or regenerate it
+      const existing = modules.find(m => m.id === moduleData.id);
+      if (existing) {
+        if (!confirm(`A module with ID "${moduleData.id}" already exists. Overwrite?`)) {
+          setIsImporting(false);
+          return;
+        }
+      }
+      
+      // Update timestamp
+      moduleData.lastUpdated = Date.now();
+      
+      addModule(moduleData);
+      alert('Module imported successfully!');
+      setRemoteUrl(''); // Clear input
+    } catch (error) {
+      console.error(error);
+      alert('Error importing module: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -32,6 +80,13 @@ export const AdminDashboard: React.FC = () => {
           <p className="opacity-70">Manage your learning modules and track progress.</p>
         </div>
         <div className="flex gap-3">
+           <button 
+            onClick={() => { if(confirm('This will reset all modules to the default set from code. Any created modules will be lost. Continue?')) resetToDefaults() }}
+            className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg flex items-center gap-2 font-medium hover:bg-gray-300 transition-colors"
+            title="Reset to default modules (fix missing content)"
+          >
+            <RefreshCw size={20} />
+          </button>
           <ThemeCustomizer />
           <Link
             to="/create"
@@ -41,6 +96,40 @@ export const AdminDashboard: React.FC = () => {
             Create Module
           </Link>
         </div>
+      </div>
+
+      {/* Load Remote Section */}
+      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm mb-8">
+        <h2 className="text-lg font-bold mb-2 flex items-center gap-2">
+          <Globe size={20} className="text-[var(--primary)]" /> 
+          Load External Module from GitHub
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Paste a <strong>Raw JSON URL</strong> from GitHub (click "Raw" on the file in GitHub) to view or import.
+        </p>
+        <form onSubmit={handleLoadRemote} className="flex gap-2 flex-col md:flex-row">
+          <input 
+            type="url" 
+            placeholder="https://raw.githubusercontent.com/username/repo/main/module.json" 
+            className="flex-1 p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            value={remoteUrl}
+            onChange={(e) => setRemoteUrl(e.target.value)}
+            required
+          />
+          <div className="flex gap-2">
+            <button type="submit" className="bg-gray-800 text-white px-6 py-3 rounded-lg font-medium hover:bg-black transition-colors flex items-center gap-2 whitespace-nowrap">
+              View Only <ArrowRight size={16} />
+            </button>
+            <button 
+              type="button" 
+              onClick={handleImportRemote}
+              disabled={isImporting || !remoteUrl}
+              className="bg-[var(--accent)] text-white px-6 py-3 rounded-lg font-medium hover:opacity-90 transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
+            >
+              {isImporting ? 'Importing...' : 'Import to Library'} <Import size={16} />
+            </button>
+          </div>
+        </form>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

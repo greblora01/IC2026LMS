@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, FileText, PlayCircle, Image as ImageIcon, File, CheckCircle, XCircle, ArrowRight, ArrowLeft, X, Printer, Award, Loader } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { Module } from '../types';
@@ -12,14 +12,14 @@ interface ModuleViewerProps {
 
 export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExitPreview }) => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const location = useLocation();
   const { getModule, incrementModuleView } = useAppContext();
   
   const [module, setModule] = useState<Module | undefined>(previewModule);
   const [loading, setLoading] = useState(!previewModule);
   const [error, setError] = useState<string | null>(null);
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(0); 
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(-1); 
   const [showResources, setShowResources] = useState(false);
 
   // Quiz State
@@ -33,6 +33,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const [certificateDate, setCertificateDate] = useState('');
 
   useEffect(() => {
+    // 1. Preview Mode (from Editor)
     if (previewModule) {
       setModule(previewModule);
       setLoading(false);
@@ -40,36 +41,35 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
       return;
     }
 
+    // 2. External URL Mode
     if (id === 'external') {
-      const searchParams = new URLSearchParams(location.search);
       const url = searchParams.get('url');
-
       if (!url) {
-        setError("No external URL provided.");
+        setError("No URL provided for external module.");
         setLoading(false);
         return;
       }
-
+      
       setLoading(true);
       fetch(url)
         .then(res => {
           if (!res.ok) throw new Error("Failed to fetch module");
           return res.json();
         })
-        .then(data => {
-          if (!data.title || !data.slides) throw new Error("Invalid module format");
+        .then((data: Module) => {
           setModule(data);
-          setAnswers(new Array(data.quiz?.questions?.length || 0).fill(-1));
+          setAnswers(new Array(data.quiz?.questions.length || 0).fill(-1));
           setLoading(false);
         })
         .catch(err => {
           console.error(err);
-          setError("Could not load module from URL. Please check the link and try again.");
+          setError("Failed to load module from URL. Ensure it is a valid JSON file and accessible (CORS).");
           setLoading(false);
         });
       return;
     }
 
+    // 3. Database/Local Mode
     if (id) {
       const foundModule = getModule(id);
       setModule(foundModule);
@@ -84,7 +84,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
       }
       setLoading(false);
     }
-  }, [id, getModule, incrementModuleView, previewModule, location.search]);
+  }, [id, getModule, incrementModuleView, previewModule, searchParams]);
 
   if (loading) return (
     <div className="h-screen flex flex-col items-center justify-center text-gray-500 gap-4">
@@ -112,12 +112,12 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const slides = module.slides || [];
   const totalSlides = slides.length;
   // Index -1: Intro, 0 to N-1: Slides, N: Quiz (if enabled)
-  const maxIndex = module.quiz.enabled && module.quiz.questions.length > 0 ? totalSlides : totalSlides - 1;
+  const maxIndex = module.quiz?.enabled && module.quiz.questions.length > 0 ? totalSlides : totalSlides - 1;
   const isQuizStep = currentSlideIndex === totalSlides;
 
   const handleNext = () => {
     // If we are at the last slide and there is no quiz, clicking next should go to completion/certificate
-    if (currentSlideIndex === totalSlides - 1 && (!module.quiz.enabled || module.quiz.questions.length === 0)) {
+    if (currentSlideIndex === totalSlides - 1 && (!module.quiz?.enabled || module.quiz.questions.length === 0)) {
        setShowCertificate(true);
        setCertificateDate(new Date().toLocaleDateString());
        return;
@@ -273,7 +273,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     );
   }
 
-  // Render Content Logic (Same as before, simplified for diff view)
+  // Render Content Logic
   const renderContent = () => {
     // 1. Cover Page
     if (currentSlideIndex === -1) {
@@ -293,7 +293,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
           
           <div className="mt-12 flex gap-8 text-sm text-gray-400 font-medium">
              <span>{totalSlides} Slides</span>
-             {module.quiz.enabled && <span>• Quiz Included</span>}
+             {module.quiz?.enabled && <span>• Quiz Included</span>}
           </div>
         </div>
       );
@@ -386,32 +386,29 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
     // 3. Slide Page Logic
     const slide = slides[currentSlideIndex];
+    if (!slide) return null; // Added safety check
     const layout = slide.layout || 'text-only';
-
-    // Simplified layout rendering for brevity (reuses existing logic but ensures media renders correctly)
-    const SlideWrapper = ({ children }: { children: React.ReactNode }) => (
-      <div className="max-w-5xl mx-auto h-full animate-in fade-in duration-300" key={slide.id}>
-         <div className="mb-4">
-             <h2 className="text-3xl font-bold text-[var(--text-color)]">{slide.title}</h2>
-         </div>
-         {children}
-      </div>
-    );
 
     if (layout === 'text-only') {
       return (
-        <SlideWrapper>
+        <div className="max-w-5xl mx-auto h-full animate-in fade-in duration-300" key={slide.id}>
+           <div className="mb-4">
+               <h2 className="text-3xl font-bold text-[var(--text-color)]">{slide.title}</h2>
+           </div>
           <article 
             className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
             dangerouslySetInnerHTML={{ __html: slide.content }} 
           />
-        </SlideWrapper>
+        </div>
       );
     }
 
     if (layout === 'media-left' || layout === 'media-right') {
       return (
-        <SlideWrapper>
+        <div className="max-w-5xl mx-auto h-full animate-in fade-in duration-300" key={slide.id}>
+           <div className="mb-4">
+               <h2 className="text-3xl font-bold text-[var(--text-color)]">{slide.title}</h2>
+           </div>
           <div className="flex flex-col lg:flex-row gap-8 lg:gap-12 items-start">
              <div className={`w-full lg:w-1/2 ${layout === 'media-right' ? 'lg:order-2' : 'lg:order-1'}`}>
                {renderMedia(slide.media)}
@@ -423,13 +420,16 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
                 />
              </div>
           </div>
-        </SlideWrapper>
+        </div>
       );
     }
 
     if (layout === 'full-media') {
        return (
-        <SlideWrapper>
+        <div className="max-w-5xl mx-auto h-full animate-in fade-in duration-300" key={slide.id}>
+           <div className="mb-4">
+               <h2 className="text-3xl font-bold text-[var(--text-color)]">{slide.title}</h2>
+           </div>
           <div className="space-y-6">
              <div className="w-full aspect-video bg-black rounded-xl overflow-hidden shadow-lg">
                 {renderMedia(slide.media, "w-full h-full object-contain")}
@@ -439,7 +439,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
                 dangerouslySetInnerHTML={{ __html: slide.content }} 
               />
           </div>
-        </SlideWrapper>
+        </div>
        );
     }
   };
@@ -449,8 +449,12 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
       {/* Viewer Header */}
       <div className="h-16 bg-[var(--card-bg)] border-b border-gray-200 flex items-center justify-between px-4 md:px-8 shrink-0 fixed top-0 w-full z-40 shadow-sm print:hidden">
          <div className="flex items-center gap-4">
-           {onExitPreview && (
+           {onExitPreview ? (
              <button onClick={onExitPreview} className="mr-2 text-gray-500 hover:text-gray-900 font-bold">Close</button>
+           ) : (
+             <button onClick={() => navigate('/')} className="mr-2 text-gray-500 hover:text-gray-900 font-bold">
+               <X size={24} />
+             </button>
            )}
            <span className="font-bold text-[var(--primary)] truncate max-w-[150px] md:max-w-md">{module.title}</span>
          </div>
@@ -533,16 +537,16 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
         <button
           onClick={handleNext}
-          disabled={currentSlideIndex >= maxIndex && !(!module.quiz.enabled && currentSlideIndex === totalSlides - 1)}
+          disabled={currentSlideIndex >= maxIndex && !(!module.quiz?.enabled && currentSlideIndex === totalSlides - 1)}
           className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
-            (currentSlideIndex >= maxIndex && module.quiz.enabled)
+            (currentSlideIndex >= maxIndex && module.quiz?.enabled)
               ? 'text-gray-300 cursor-not-allowed'
               : 'bg-[var(--primary)] text-white hover:opacity-90 shadow-md'
           }`}
         >
           <span className="hidden md:inline">
             {/* Logic: If no quiz and on last slide, show Finish */}
-            {!module.quiz.enabled && currentSlideIndex === totalSlides - 1 ? 'Finish' : 'Next'}
+            {!module.quiz?.enabled && currentSlideIndex === totalSlides - 1 ? 'Finish' : 'Next'}
           </span> 
           <ArrowRight size={20} />
         </button>
