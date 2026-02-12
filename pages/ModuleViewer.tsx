@@ -14,7 +14,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { getModule, incrementModuleView } = useAppContext();
+  const { getModule, incrementModuleView, isLoading: contextLoading } = useAppContext();
   
   const [module, setModule] = useState<Module | undefined>(previewModule);
   const [loading, setLoading] = useState(!previewModule);
@@ -71,22 +71,26 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
     // 3. Database/Local Mode
     if (id) {
+      if (contextLoading) return; // Wait for Firebase to sync
+
       const foundModule = getModule(id);
       setModule(foundModule);
       if (foundModule) {
+        setError(null);
         if (!sessionStorage.getItem(`viewed_${id}`)) {
           incrementModuleView(id);
           sessionStorage.setItem(`viewed_${id}`, 'true');
         }
         setAnswers(new Array(foundModule.quiz?.questions.length || 0).fill(-1));
       } else {
-        setError("Module not found locally.");
+        setError("Module not found. It may have been deleted or the link is incorrect.");
       }
       setLoading(false);
     }
-  }, [id, getModule, incrementModuleView, previewModule, searchParams]);
+  }, [id, getModule, incrementModuleView, previewModule, searchParams, contextLoading]);
 
-  if (loading) return (
+  // Loading State (Handles both internal fetch and context sync)
+  if (loading || (id && id !== 'external' && contextLoading && !module)) return (
     <div className="h-screen flex flex-col items-center justify-center text-gray-500 gap-4">
       <Loader className="animate-spin" size={32} />
       <p>Loading module content...</p>

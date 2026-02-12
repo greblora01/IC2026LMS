@@ -7,7 +7,8 @@ import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, increment, w
 interface AppContextType {
   modules: Module[];
   theme: Theme;
-  isCloud: boolean; // New property to track connection status
+  isCloud: boolean;
+  isLoading: boolean;
   updateTheme: (newTheme: Partial<Theme>) => void;
   addModule: (module: Module) => void;
   updateModule: (id: string, module: Partial<Module>) => void;
@@ -21,7 +22,8 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [modules, setModules] = useState<Module[]>([]);
-  const isCloud = !!db; // Check if Firebase is initialized
+  const [isLoading, setIsLoading] = useState(true);
+  const isCloud = !!db; 
   
   // Theme state is kept in localStorage to avoid unnecessary DB reads/writes for user preference
   const [theme, setTheme] = useState<Theme>(() => {
@@ -31,6 +33,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Load Modules (Firebase or LocalStorage)
   useEffect(() => {
+    setIsLoading(true);
     if (db) {
       // Firebase Mode
       try {
@@ -38,12 +41,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const fetchedModules = snapshot.docs.map(doc => doc.data() as Module);
           fetchedModules.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
           setModules(fetchedModules);
+          setIsLoading(false);
         }, (error) => {
           console.error("Error connecting to Firebase:", error);
+          setIsLoading(false);
         });
         return () => unsubscribe();
       } catch (err) {
         console.error("Firebase connection failed", err);
+        setIsLoading(false);
       }
     } else {
       // LocalStorage Fallback
@@ -53,6 +59,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } else {
         setModules(MOCK_MODULES);
       }
+      setIsLoading(false);
     }
   }, []);
 
@@ -178,6 +185,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       modules,
       theme,
       isCloud,
+      isLoading,
       updateTheme,
       addModule,
       updateModule,

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Copy, Eye, Image as ImageIcon, Download, Globe, ArrowRight, RefreshCw, Import, Cloud, HardDrive, UploadCloud } from 'lucide-react';
+import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Share2, Eye, Image as ImageIcon, Download, Globe, ArrowRight, RefreshCw, Import, Cloud, HardDrive, UploadCloud, X } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { ThemeCustomizer } from '../components/ThemeCustomizer';
 import { Module } from '../types';
@@ -10,12 +10,7 @@ export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [remoteUrl, setRemoteUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
-
-  const copyLink = (id: string) => {
-    const url = `${window.location.origin}${window.location.pathname}#/view/${id}`;
-    navigator.clipboard.writeText(url);
-    alert('Link copied to clipboard!');
-  };
+  const [shareModuleId, setShareModuleId] = useState<string | null>(null);
 
   const handleExport = (module: any) => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(module, null, 2));
@@ -72,8 +67,48 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
+  // Helper to generate the student link
+  const getStudentLink = (id: string) => {
+    return `${window.location.origin}${window.location.pathname}#/view/${id}`;
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      {/* Share Dialog */}
+      {shareModuleId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-2xl relative">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold flex items-center gap-2"><Share2 size={20} /> Share Module</h3>
+              <button onClick={() => setShareModuleId(null)} className="text-gray-400 hover:text-gray-800"><X size={20} /></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Share this link with your students. They can access the module directly.</p>
+            
+            <div className="flex gap-2 mb-6">
+              <input 
+                readOnly 
+                value={getStudentLink(shareModuleId)} 
+                className="flex-1 p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm font-mono text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+              />
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(getStudentLink(shareModuleId));
+                  alert('Copied to clipboard!');
+                }}
+                className="bg-[var(--primary)] text-white px-4 rounded-lg font-bold hover:opacity-90 transition-opacity"
+              >
+                Copy
+              </button>
+            </div>
+            
+            <div className="flex justify-end">
+                <button onClick={() => setShareModuleId(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors font-medium">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold mb-2">Admin Dashboard</h1>
@@ -232,11 +267,11 @@ export const AdminDashboard: React.FC = () => {
               <div className="p-4 border-t border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <div className="flex gap-1">
                   <button
-                    onClick={() => copyLink(module.id)}
+                    onClick={() => setShareModuleId(module.id)}
                     className="p-2 text-gray-500 hover:text-[var(--primary)] transition-colors"
-                    title="Copy Student Link"
+                    title="Share Link"
                   >
-                    <Copy size={18} />
+                    <Share2 size={18} />
                   </button>
                   <Link
                     to={`/view/${module.id}`}
