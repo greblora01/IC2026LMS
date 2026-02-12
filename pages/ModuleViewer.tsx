@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Download, FileText, PlayCircle, Image as ImageIcon, File, CheckCircle, XCircle, ArrowRight, ArrowLeft, X, Printer, Award } from 'lucide-react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Download, FileText, PlayCircle, Image as ImageIcon, File, CheckCircle, XCircle, ArrowRight, ArrowLeft, X, Printer, Award, Loader } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { Module } from '../types';
 import { ThemeCustomizer } from '../components/ThemeCustomizer';
@@ -13,10 +13,12 @@ interface ModuleViewerProps {
 export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExitPreview }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { getModule, incrementModuleView } = useAppContext();
   
   const [module, setModule] = useState<Module | undefined>(previewModule);
   const [loading, setLoading] = useState(!previewModule);
+  const [error, setError] = useState<string | null>(null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0); 
   const [showResources, setShowResources] = useState(false);
 
@@ -38,6 +40,36 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
       return;
     }
 
+    if (id === 'external') {
+      const searchParams = new URLSearchParams(location.search);
+      const url = searchParams.get('url');
+
+      if (!url) {
+        setError("No external URL provided.");
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      fetch(url)
+        .then(res => {
+          if (!res.ok) throw new Error("Failed to fetch module");
+          return res.json();
+        })
+        .then(data => {
+          if (!data.title || !data.slides) throw new Error("Invalid module format");
+          setModule(data);
+          setAnswers(new Array(data.quiz?.questions?.length || 0).fill(-1));
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error(err);
+          setError("Could not load module from URL. Please check the link and try again.");
+          setLoading(false);
+        });
+      return;
+    }
+
     if (id) {
       const foundModule = getModule(id);
       setModule(foundModule);
@@ -47,13 +79,35 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
           sessionStorage.setItem(`viewed_${id}`, 'true');
         }
         setAnswers(new Array(foundModule.quiz?.questions.length || 0).fill(-1));
+      } else {
+        setError("Module not found locally.");
       }
       setLoading(false);
     }
-  }, [id, getModule, incrementModuleView, previewModule]);
+  }, [id, getModule, incrementModuleView, previewModule, location.search]);
 
-  if (loading) return <div className="h-screen flex items-center justify-center text-gray-500">Loading module...</div>;
-  if (!module) return <div className="p-10 text-center text-red-500">Module not found.</div>;
+  if (loading) return (
+    <div className="h-screen flex flex-col items-center justify-center text-gray-500 gap-4">
+      <Loader className="animate-spin" size={32} />
+      <p>Loading module content...</p>
+    </div>
+  );
+
+  if (error || !module) return (
+    <div className="p-10 text-center flex flex-col items-center justify-center min-h-[50vh]">
+      <div className="bg-red-50 text-red-500 p-6 rounded-xl border border-red-100 max-w-md">
+        <XCircle size={48} className="mx-auto mb-4" />
+        <h3 className="text-xl font-bold mb-2">Error Loading Module</h3>
+        <p>{error || "Module not found."}</p>
+        <button 
+          onClick={() => navigate('/')} 
+          className="mt-6 bg-red-500 text-white px-6 py-2 rounded-lg font-medium hover:bg-red-600 transition-colors"
+        >
+          Return Home
+        </button>
+      </div>
+    </div>
+  );
 
   const slides = module.slides || [];
   const totalSlides = slides.length;

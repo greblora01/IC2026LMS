@@ -1,11 +1,12 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Copy, Eye, Image as ImageIcon } from 'lucide-react';
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Copy, Eye, Image as ImageIcon, Download } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { ThemeCustomizer } from '../components/ThemeCustomizer';
 
 export const AdminDashboard: React.FC = () => {
   const { modules, deleteModule } = useAppContext();
+  const navigate = useNavigate();
 
   const copyLink = (id: string) => {
     const url = `${window.location.origin}${window.location.pathname}#/view/${id}`;
@@ -13,9 +14,19 @@ export const AdminDashboard: React.FC = () => {
     alert('Link copied to clipboard!');
   };
 
+  const handleExport = (module: any) => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(module, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `${module.title.replace(/\s+/g, '_')}_module.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold mb-2">Admin Dashboard</h1>
           <p className="opacity-70">Manage your learning modules and track progress.</p>
@@ -116,6 +127,13 @@ export const AdminDashboard: React.FC = () => {
                   >
                     <Eye size={18} />
                   </Link>
+                  <button
+                    onClick={() => handleExport(module)}
+                    className="p-2 text-gray-500 hover:text-[var(--primary)] transition-colors"
+                    title="Export JSON"
+                  >
+                    <Download size={18} />
+                  </button>
                 </div>
                 <div className="flex gap-2">
                   <Link
