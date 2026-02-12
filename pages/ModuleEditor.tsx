@@ -1,22 +1,187 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  ArrowLeft, Save, Upload, Plus, Trash, CheckCircle, Layout, 
-  FileText, Settings, Play, Eye, AlignLeft, AlignRight, 
-  MonitorPlay, Image as ImageIcon, Maximize, FileUp, Loader2, Link as LinkIcon
+  ArrowLeft, Save, Plus, Trash, CheckCircle, 
+  Settings, Eye, MonitorPlay, Image as ImageIcon, 
+  Loader2, Type, Youtube, GripVertical, MousePointer2,
+  Bold, AlignLeft, AlignCenter, AlignRight, BringToFront, SendToBack,
+  Palette, Square, Undo2, Redo2, Printer, Search, 
+  ZoomIn, ChevronDown, LayoutTemplate, PaintBucket, Circle, Type as TypeIcon
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
-import { RichTextEditor } from '../components/RichTextEditor';
-import { Module, Question, AttachedFile, Slide, SlideLayout, SlideMedia } from '../types';
+import { Module, Question, SlideBlock, BlockType, BlockStyle } from '../types';
 import { ModuleViewer } from './ModuleViewer';
-import { ThemeCustomizer } from '../components/ThemeCustomizer';
-// @ts-ignore
-import * as pdfjsLib from 'pdfjs-dist';
 
-// Simple UUID generator fallback
+// Canvas Constants
+const CANVAS_WIDTH = 960;
+const CANVAS_HEIGHT = 540;
+
+// Helpers
 const generateId = () => Math.random().toString(36).substr(2, 9);
+const readFileAsBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
 
-type EditorSection = 'general' | 'quiz' | string; // 'general', 'quiz', or slide ID
+// --- Components ---
+
+interface CanvasBlockProps {
+  block: SlideBlock;
+  isSelected: boolean;
+  zoom: number;
+  onMouseDown: (e: React.MouseEvent, blockId: string, handle?: string | null) => void;
+  onUpdate: (blockId: string, changes: Partial<SlideBlock>) => void;
+}
+
+const CanvasBlock: React.FC<CanvasBlockProps> = ({ block, isSelected, zoom, onMouseDown, onUpdate }) => {
+  const handleContentChange = (e: React.FocusEvent<HTMLDivElement>) => {
+     if (block.type === 'text') {
+       onUpdate(block.id, { content: e.currentTarget.innerHTML });
+     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     if (e.target.files?.[0]) {
+       const file = e.target.files[0];
+       if (file.size > 800 * 1024) {
+          alert(`File too large. Max size is 800KB. Use URL for larger files.`);
+          return;
+       }
+       const base64 = await readFileAsBase64(file);
+       onUpdate(block.id, { content: base64 });
+     }
+  };
+
+  return (
+    <div
+      className={`absolute group ${isSelected ? 'z-50' : 'z-10'} ${block.type === 'text' ? 'cursor-text' : 'cursor-move'}`}
+      style={{
+        left: block.x,
+        top: block.y,
+        width: block.width,
+        height: block.height,
+        zIndex: block.style?.zIndex || 1,
+        backgroundColor: block.style?.backgroundColor,
+        borderRadius: block.style?.borderRadius,
+        // Outline for selection
+        outline: isSelected ? '2px solid #4285F4' : 'none', // Google Blue
+        overflow: 'hidden'
+      }}
+      onMouseDown={(e) => {
+         // Only trigger drag if not editing text or if clicking border
+         if (block.type !== 'text' || e.target === e.currentTarget) {
+            onMouseDown(e, block.id);
+         }
+      }}
+    >
+      <div className="w-full h-full relative">
+         {block.type === 'text' && (
+           <div
+             contentEditable
+             suppressContentEditableWarning
+             className="w-full h-full outline-none p-2 cursor-text"
+             style={{
+               fontSize: block.style?.fontSize || 16,
+               color: block.style?.color,
+               textAlign: block.style?.textAlign,
+               fontWeight: block.style?.fontWeight,
+               fontFamily: 'Arial, sans-serif'
+             }}
+             onBlur={handleContentChange}
+             onMouseDown={(e) => {
+                // If clicking text, ensure we select the block too
+                onMouseDown(e, block.id);
+                e.stopPropagation(); 
+             }} 
+             dangerouslySetInnerHTML={{ __html: block.content }}
+           />
+         )}
+         
+         {block.type === 'image' && (
+            block.content ? (
+              <img src={block.content} className="w-full h-full object-cover pointer-events-none" />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 text-gray-400 border border-dashed border-gray-300">
+                 <ImageIcon size={32} />
+                 <span className="text-[10px] mt-1">Image</span>
+                 <input type="file" accept="image/*" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+              </div>
+            )
+         )}
+
+         {block.type === 'video' && (
+            block.content ? (
+               <div className="w-full h-full bg-black flex items-center justify-center text-white relative group">
+                  <MonitorPlay size={32} />
+                  <span className="absolute bottom-2 text-xs">Video Placeholder</span>
+               </div>
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 text-gray-400 border border-dashed border-gray-300">
+                 <MonitorPlay size={32} />
+                 <span className="text-[10px] mt-1">Video</span>
+                 <button 
+                    className="mt-1 px-2 py-0.5 bg-white border rounded text-xs z-20 hover:text-blue-600"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const url = prompt("Video URL:");
+                      if (url) onUpdate(block.id, { content: url });
+                    }}
+                 >URL</button>
+              </div>
+            )
+         )}
+
+         {block.type === 'youtube' && (
+            block.content ? (
+               <iframe src={block.content} className="w-full h-full pointer-events-none" />
+            ) : (
+               <div className="w-full h-full bg-red-50 flex flex-col items-center justify-center text-red-500 border border-dashed border-red-200">
+                  <Youtube size={32} />
+                  <button 
+                    className="text-xs mt-2 underline"
+                    onClick={(e) => {
+                       e.stopPropagation();
+                       const url = prompt("YouTube URL:");
+                       if (url) {
+                          const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+                          const match = url.match(regExp);
+                          const embed = (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : url;
+                          onUpdate(block.id, { content: embed });
+                       }
+                    }}
+                  >
+                    Set URL
+                  </button>
+               </div>
+            )
+         )}
+
+         {block.type === 'shape' && <div className="w-full h-full" />}
+      </div>
+
+      {isSelected && (
+        <>
+          {/* Resize Handles - Styled like Google Slides (Blue squares) */}
+          <div className="absolute top-0 left-0 w-2.5 h-2.5 bg-[#4285F4] border border-white -mt-1.5 -ml-1.5 cursor-nw-resize z-50" onMouseDown={(e) => onMouseDown(e, block.id, 'nw')} />
+          <div className="absolute top-0 right-0 w-2.5 h-2.5 bg-[#4285F4] border border-white -mt-1.5 -mr-1.5 cursor-ne-resize z-50" onMouseDown={(e) => onMouseDown(e, block.id, 'ne')} />
+          <div className="absolute bottom-0 left-0 w-2.5 h-2.5 bg-[#4285F4] border border-white -mb-1.5 -ml-1.5 cursor-sw-resize z-50" onMouseDown={(e) => onMouseDown(e, block.id, 'sw')} />
+          <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#4285F4] border border-white -mb-1.5 -mr-1.5 cursor-se-resize z-50" onMouseDown={(e) => onMouseDown(e, block.id, 'se')} />
+          {/* Midpoint Handles */}
+          <div className="absolute top-0 left-1/2 w-2.5 h-2.5 bg-[#4285F4] border border-white -mt-1.5 -ml-1.5 cursor-n-resize z-50" onMouseDown={(e) => onMouseDown(e, block.id, 'n')} />
+          <div className="absolute bottom-0 left-1/2 w-2.5 h-2.5 bg-[#4285F4] border border-white -mb-1.5 -ml-1.5 cursor-s-resize z-50" onMouseDown={(e) => onMouseDown(e, block.id, 's')} />
+          <div className="absolute top-1/2 left-0 w-2.5 h-2.5 bg-[#4285F4] border border-white -mt-1.5 -ml-1.5 cursor-w-resize z-50" onMouseDown={(e) => onMouseDown(e, block.id, 'w')} />
+          <div className="absolute top-1/2 right-0 w-2.5 h-2.5 bg-[#4285F4] border border-white -mt-1.5 -mr-1.5 cursor-e-resize z-50" onMouseDown={(e) => onMouseDown(e, block.id, 'e')} />
+        </>
+      )}
+    </div>
+  );
+};
+
+type EditorSection = 'general' | 'quiz' | string;
 
 export const ModuleEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -26,795 +191,614 @@ export const ModuleEditor: React.FC = () => {
   const isEditMode = !!id;
   const [activeSection, setActiveSection] = useState<EditorSection>('general');
   const [showPreview, setShowPreview] = useState(false);
-  const [isProcessingPdf, setIsProcessingPdf] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [zoom, setZoom] = useState(0.75); // Default zoom 75%
+
+  // History State
+  const [history, setHistory] = useState<Module[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [isUndoing, setIsUndoing] = useState(false);
   
-  const [formData, setFormData] = useState<Partial<Module>>({
-    title: '',
+  // Selection & Manipulation
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [initialBlockState, setInitialBlockState] = useState<{x: number, y: number, w: number, h: number} | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Drag Reorder
+  const [draggedSlideIndex, setDraggedSlideIndex] = useState<number | null>(null);
+  
+  const [formData, setFormData] = useState<Module>({
+    id: generateId(),
+    title: 'Untitled Presentation',
     description: '',
     thumbnail: '',
     slides: [],
     files: [],
     quiz: { enabled: false, questions: [] },
-    stats: { views: 0, completions: 0 }
+    stats: { views: 0, completions: 0 },
+    createdAt: Date.now(),
+    lastUpdated: Date.now()
   });
 
+  // Initialization
   useEffect(() => {
     if (isEditMode && id) {
       const existing = getModule(id);
       if (existing) {
-        setFormData(JSON.parse(JSON.stringify(existing)));
+        const data = JSON.parse(JSON.stringify(existing));
+        setFormData(data);
+        setHistory([data]);
+        setHistoryIndex(0);
       } else {
         navigate('/');
       }
-    } else if (!isEditMode && (!formData.slides || formData.slides.length === 0)) {
-       // Initialize with one empty slide
-       setFormData(prev => ({
-         ...prev,
+    } else if (!isEditMode && history.length === 0) {
+       const initial: Module = {
+         ...formData,
          slides: [{ 
            id: generateId(), 
-           title: 'Introduction', 
-           content: '<p>Welcome to this module.</p>',
-           layout: 'text-only' 
+           title: 'Title Slide', 
+           content: '',
+           layout: 'freeform',
+           blocks: [
+             { id: generateId(), type: 'text', content: '<h1 style="text-align: center">Click to add title</h1>', x: 80, y: 150, width: 800, height: 100, style: { fontSize: 36, textAlign: 'center' } },
+             { id: generateId(), type: 'text', content: '<p style="text-align: center">Click to add subtitle</p>', x: 180, y: 260, width: 600, height: 60, style: { fontSize: 18, textAlign: 'center', color: '#666' } }
+           ]
          }]
-       }));
+       };
+       setFormData(initial);
+       setHistory([initial]);
+       setHistoryIndex(0);
     }
-  }, [id, isEditMode, getModule, navigate]);
+  }, [id, isEditMode]);
+
+  // Push to History on Change
+  const pushToHistory = (newData: Module) => {
+    if (isUndoing) return;
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(JSON.parse(JSON.stringify(newData)));
+    if (newHistory.length > 20) newHistory.shift(); // Limit history depth
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+    setFormData(newData);
+  };
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      setIsUndoing(true);
+      const prev = history[historyIndex - 1];
+      setFormData(JSON.parse(JSON.stringify(prev)));
+      setHistoryIndex(historyIndex - 1);
+      setTimeout(() => setIsUndoing(false), 0);
+    }
+  };
+
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      setIsUndoing(true);
+      const next = history[historyIndex + 1];
+      setFormData(JSON.parse(JSON.stringify(next)));
+      setHistoryIndex(historyIndex + 1);
+      setTimeout(() => setIsUndoing(false), 0);
+    }
+  };
 
   const handleSave = async () => {
     if (!formData.title) return alert('Title is required');
-
     setIsSaving(true);
-
-    const moduleData = {
-      ...formData,
-      lastUpdated: Date.now()
-    } as Module;
-
+    const moduleData = { ...formData, lastUpdated: Date.now() };
     try {
-      if (isEditMode && id) {
-        await updateModule(id, moduleData);
-      } else {
-        moduleData.id = generateId();
-        moduleData.createdAt = Date.now();
-        await addModule(moduleData);
-      }
-      navigate('/');
-    } catch (error: any) {
-      console.error("Save error:", error);
-      let msg = "Failed to save module to the database.";
-      // Check for common Firestore size error
-      if (error.code === 'resource-exhausted' || (error.message && error.message.includes('exceeds the maximum allowed size'))) {
-        msg = "The module is too large to save (Max 1MB). Please remove some images or reduce slide count.";
-      } else if (error.code === 'permission-denied') {
-         msg = "You do not have permission to save changes.";
-      }
-      alert(msg);
+      if (isEditMode && id) await updateModule(id, moduleData);
+      else await addModule(moduleData);
+      // alert("Saved successfully!");
+      navigate('/'); // Go back to dashboard on save
+    } catch (error) {
+      alert("Error saving module.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Helper to read file as base64
-  const readFileAsBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      const file = files[0];
-      try {
-        const base64 = await readFileAsBase64(file);
-        const extension = file.name.split('.').pop()?.toLowerCase();
-        let type: AttachedFile['type'] = 'other';
-        if (['pdf'].includes(extension || '')) type = 'pdf';
-        else if (['mp4', 'webm', 'ogg'].includes(extension || '')) type = 'video';
-        else if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(extension || '')) type = 'image';
-        else if (['doc', 'docx'].includes(extension || '')) type = 'doc';
-
-        const newFile: AttachedFile = {
-          id: generateId(),
-          name: file.name,
-          type, 
-          size: `${(file.size / 1024).toFixed(1)} KB`,
-          url: base64
-        };
-        setFormData(prev => ({ ...prev, files: [...(prev.files || []), newFile] }));
-      } catch (error) {
-        console.error("Error reading file", error);
-        alert("Error reading file");
-      }
-    }
-  };
-
-  // Thumbnail Handler
-  const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      try {
-        const base64 = await readFileAsBase64(files[0]);
-        setFormData(prev => ({ ...prev, thumbnail: base64 }));
-      } catch (error) {
-        console.error("Error reading thumbnail", error);
-      }
-    }
-  };
-
-  // PDF Import Handler
-  const handleImportPdfSlides = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsProcessingPdf(true);
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      
-      // Initialize PDF.js worker
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.mjs';
-      
-      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-      const pdf = await loadingTask.promise;
-      const newSlides: Slide[] = [];
-
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-
-        if (context) {
-          await page.render({ canvasContext: context, viewport }).promise;
-          const imgData = canvas.toDataURL('image/jpeg', 0.8);
-
-          newSlides.push({
-            id: generateId(),
-            title: `Slide ${(formData.slides?.length || 0) + i} (PDF)`,
-            content: '',
-            layout: 'full-media',
-            media: {
-              type: 'image',
-              url: imgData,
-              name: `Page ${i} of ${file.name}`
-            }
-          });
-        }
-      }
-
-      setFormData(prev => ({
-        ...prev,
-        slides: [...(prev.slides || []), ...newSlides]
-      }));
-      
-      alert(`Successfully imported ${newSlides.length} pages as slides.`);
-    } catch (err) {
-      console.error(err);
-      alert("Failed to import PDF. " + (err instanceof Error ? err.message : 'Unknown error'));
-    } finally {
-      setIsProcessingPdf(false);
-      e.target.value = ''; // Reset input
-    }
-  };
-
-  // Slide Management
-  const addSlide = () => {
-    const newSlide: Slide = {
-      id: generateId(),
-      title: `Slide ${(formData.slides?.length || 0) + 1}`,
-      content: '',
-      layout: 'text-only'
-    };
-    setFormData(prev => ({ ...prev, slides: [...(prev.slides || []), newSlide] }));
-    setActiveSection(newSlide.id);
-  };
-
-  const deleteSlide = (slideId: string) => {
-    if ((formData.slides?.length || 0) <= 1) return alert("You must have at least one slide.");
-    const newSlides = formData.slides?.filter(s => s.id !== slideId) || [];
-    setFormData(prev => ({ ...prev, slides: newSlides }));
-    if (activeSection === slideId) setActiveSection('general');
-  };
-
-  const updateSlide = (slideId: string, field: keyof Slide, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      slides: prev.slides?.map(s => s.id === slideId ? { ...s, [field]: value } : s)
-    }));
-  };
-
-  const updateSlideMedia = (slideId: string, media: SlideMedia | undefined) => {
-    updateSlide(slideId, 'media', media);
-  };
-
-  const handleSlideMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>, slideId: string) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      const file = files[0];
-      const type = file.type.startsWith('video') ? 'video' : 'image';
-      try {
-        const base64 = await readFileAsBase64(file);
-        const newMedia: SlideMedia = {
-          type,
-          url: base64,
-          name: file.name
-        };
-        updateSlideMedia(slideId, newMedia);
-      } catch (error) {
-        console.error("Error uploading media", error);
-      }
-    }
-  };
-
-  // URL Helper for YouTube
-  const getEmbedUrl = (url: string) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : url;
-  };
-
   const getActiveSlide = () => formData.slides?.find(s => s.id === activeSection);
 
-  // Quiz Management
-  const addQuestion = () => {
-    const newQ: Question = { id: generateId(), text: '', options: ['', ''], correctOptionIndex: 0 };
-    setFormData(prev => ({
-      ...prev,
-      quiz: { ...prev.quiz!, enabled: true, questions: [...(prev.quiz?.questions || []), newQ] }
-    }));
+  // --- Block Manipulation ---
+
+  const addBlock = (type: BlockType, defaults: Partial<SlideBlock> = {}) => {
+    if (activeSection === 'general' || activeSection === 'quiz') return;
+    
+    const defaultStyles: Record<string, Partial<BlockStyle>> = {
+      text: { fontSize: 14, color: '#333333', textAlign: 'left' },
+      shape: { backgroundColor: '#a0c4ff', borderRadius: 0 },
+    };
+    
+    // Default center placement logic
+    const viewportCenter = { x: CANVAS_WIDTH / 2 - 150, y: CANVAS_HEIGHT / 2 - 100 };
+
+    const newBlock: SlideBlock = {
+      id: generateId(),
+      type,
+      content: type === 'text' ? 'New Text Box' : '',
+      x: viewportCenter.x,
+      y: viewportCenter.y,
+      width: type === 'text' ? 300 : 200,
+      height: type === 'text' ? 50 : 200,
+      style: defaultStyles[type] || {},
+      ...defaults
+    };
+
+    const newSlides = formData.slides.map(s => 
+      s.id === activeSection ? { ...s, blocks: [...(s.blocks || []), newBlock] } : s
+    );
+    
+    pushToHistory({ ...formData, slides: newSlides });
+    setSelectedBlockId(newBlock.id);
   };
 
-  const updateQuestion = (qIndex: number, field: keyof Question, value: any) => {
-    const newQuestions = [...(formData.quiz?.questions || [])];
-    newQuestions[qIndex] = { ...newQuestions[qIndex], [field]: value };
-    setFormData(prev => ({ ...prev, quiz: { ...prev.quiz!, questions: newQuestions } }));
+  const updateBlock = (slideId: string, blockId: string, changes: Partial<SlideBlock>) => {
+    const newSlides = formData.slides.map(s => {
+      if (s.id !== slideId) return s;
+      return {
+        ...s,
+        blocks: s.blocks?.map(b => b.id === blockId ? { ...b, ...changes } : b)
+      };
+    });
+    // For drag/resize we update state directly to avoid history spam, 
+    // but for content updates we might want history. 
+    // For now, simple direct update for responsiveness.
+    setFormData({ ...formData, slides: newSlides });
+  };
+  
+  // Commit to history after drag/resize ends
+  const commitChange = () => {
+    pushToHistory(formData);
   };
 
-  const updateOption = (qIndex: number, oIndex: number, value: string) => {
-    const newQuestions = [...(formData.quiz?.questions || [])];
-    newQuestions[qIndex].options[oIndex] = value;
-    setFormData(prev => ({ ...prev, quiz: { ...prev.quiz!, questions: newQuestions } }));
+  const deleteBlock = (slideId: string, blockId: string) => {
+    const newSlides = formData.slides.map(s => {
+      if (s.id !== slideId) return s;
+      return { ...s, blocks: s.blocks?.filter(b => b.id !== blockId) };
+    });
+    pushToHistory({ ...formData, slides: newSlides });
+    setSelectedBlockId(null);
   };
 
-  // Layout UI Components
-  const LayoutButton = ({ layout, icon, active, onClick }: { layout: string, icon: React.ReactNode, active: boolean, onClick: () => void }) => (
-    <button
+  const updateBlockStyle = (slideId: string, blockId: string, styleChanges: Partial<BlockStyle>) => {
+     const slide = formData.slides.find(s => s.id === slideId);
+     const block = slide?.blocks?.find(b => b.id === blockId);
+     if(block) updateBlock(slideId, blockId, { style: { ...block.style, ...styleChanges } });
+  };
+
+  // --- Mouse Handlers ---
+
+  const handleMouseDown = (e: React.MouseEvent, blockId: string, handle: string | null = null) => {
+    e.stopPropagation(); // Stop from clearing selection
+    const slide = getActiveSlide();
+    const block = slide?.blocks?.find(b => b.id === blockId);
+    if (!block) return;
+
+    setSelectedBlockId(blockId);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setInitialBlockState({ x: block.x, y: block.y, w: block.width, h: block.height });
+
+    if (handle) {
+      setIsResizing(true);
+      setResizeHandle(handle);
+    } else {
+      setIsDragging(true);
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging && !isResizing) return;
+    if (!selectedBlockId || !initialBlockState) return;
+
+    // Apply Zoom Correction to Delta
+    const dx = (e.clientX - dragStart.x) / zoom;
+    const dy = (e.clientY - dragStart.y) / zoom;
+
+    if (isDragging) {
+      updateBlock(activeSection, selectedBlockId, {
+        x: initialBlockState.x + dx,
+        y: initialBlockState.y + dy
+      });
+    } else if (isResizing) {
+       let { x, y, w, h } = initialBlockState;
+       
+       if (resizeHandle?.includes('e')) w += dx;
+       if (resizeHandle?.includes('w')) { x += dx; w -= dx; }
+       if (resizeHandle?.includes('s')) h += dy;
+       if (resizeHandle?.includes('n')) { y += dy; h -= dy; }
+
+       if (w < 20) w = 20;
+       if (h < 20) h = 20;
+
+       updateBlock(activeSection, selectedBlockId, { x, y, width: w, height: h });
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (isDragging || isResizing) {
+      commitChange();
+    }
+    setIsDragging(false);
+    setIsResizing(false);
+    setResizeHandle(null);
+  };
+
+  // --- UI Components for Ribbon ---
+
+  const RibbonButton = ({ icon, label, onClick, active = false }: { icon: React.ReactNode, label?: string, onClick?: () => void, active?: boolean }) => (
+    <button 
       onClick={onClick}
-      className={`p-2 rounded-lg border flex flex-col items-center gap-1 transition-all w-24 ${
-        active 
-          ? 'border-[var(--primary)] bg-blue-50 text-[var(--primary)] ring-1 ring-[var(--primary)]' 
-          : 'border-gray-200 hover:bg-gray-50 text-gray-500'
-      }`}
+      className={`flex flex-col items-center justify-center p-1.5 rounded min-w-[32px] h-[32px] md:h-auto md:min-w-0 md:p-1.5 transition-colors ${active ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-200 text-gray-700'}`}
+      title={label}
     >
       {icon}
-      <span className="text-[10px] font-medium uppercase">{layout}</span>
+      {label && <span className="text-[10px] mt-0.5 hidden md:block">{label}</span>}
     </button>
   );
 
-  const MediaUploader = ({ slideId, currentMedia }: { slideId: string, currentMedia?: SlideMedia }) => {
-    const [mode, setMode] = useState<'upload' | 'link'>('upload');
-    const [urlInput, setUrlInput] = useState('');
+  const Divider = () => <div className="w-px h-6 bg-gray-300 mx-1 self-center" />;
 
-    const handleAddUrl = () => {
-      if (!urlInput) return;
-      
-      let type: 'video' | 'image' = 'image';
-      let finalUrl = urlInput;
-
-      // Check for video link (YouTube)
-      if (urlInput.includes('youtube.com') || urlInput.includes('youtu.be')) {
-        type = 'video';
-        finalUrl = getEmbedUrl(urlInput);
-      } else if (urlInput.match(/\.(mp4|webm|ogg)$/i)) {
-        type = 'video';
-      }
-
-      const newMedia: SlideMedia = {
-        type,
-        url: finalUrl,
-        name: 'External Link'
-      };
-      
-      updateSlideMedia(slideId, newMedia);
-      setUrlInput('');
-    };
-
-    return (
-      <div className="w-full h-full min-h-[200px] border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center p-4 hover:bg-gray-50 transition-colors bg-[var(--bg-color)] relative overflow-hidden group">
-        {currentMedia ? (
-          <>
-            {currentMedia.type === 'video' ? (
-              currentMedia.url.includes('youtube') ? (
-                 <iframe 
-                    src={currentMedia.url} 
-                    className="w-full h-full pointer-events-none" 
-                    title="Video Preview"
-                  />
-              ) : (
-                <video src={currentMedia.url} className="w-full h-full object-contain" controls />
-              )
-            ) : (
-              <img src={currentMedia.url} alt="Slide media" className="w-full h-full object-contain" />
-            )}
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
-              <button 
-                onClick={() => updateSlideMedia(slideId, undefined)}
-                className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600"
-                title="Remove Media"
-              >
-                <Trash size={16} />
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col items-center w-full max-w-sm">
-             <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg">
-                <button 
-                  onClick={() => setMode('upload')}
-                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${mode === 'upload' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  Upload File
-                </button>
-                <button 
-                  onClick={() => setMode('link')}
-                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${mode === 'link' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  From URL
-                </button>
-             </div>
-
-             {mode === 'upload' ? (
-               <div className="text-center relative w-full">
-                  <input 
-                    type="file" 
-                    accept="image/*,video/*"
-                    onChange={(e) => handleSlideMediaUpload(e, slideId)} 
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-                  />
-                  <div className="flex gap-2 mb-2 text-gray-400 justify-center">
-                    <ImageIcon size={24} />
-                    <MonitorPlay size={24} />
-                  </div>
-                  <span className="text-[var(--primary)] font-medium text-sm block">Click to Upload</span>
-                  <span className="text-xs text-gray-400 mt-1 block">Images or MP4 Videos</span>
-               </div>
-             ) : (
-               <div className="w-full flex flex-col gap-2">
-                 <input 
-                    type="text" 
-                    placeholder="https://youtube.com/..." 
-                    className="w-full p-2 text-sm border border-gray-300 rounded focus:border-[var(--primary)] outline-none"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                 />
-                 <button 
-                   onClick={handleAddUrl}
-                   className="w-full bg-[var(--primary)] text-white py-1.5 rounded text-sm font-medium hover:opacity-90 flex items-center justify-center gap-1"
-                 >
-                   <LinkIcon size={14} /> Add Link
-                 </button>
-                 <span className="text-[10px] text-gray-400 text-center">Supports YouTube, Images, & Video Files</span>
-               </div>
-             )}
-          </div>
-        )}
-      </div>
-    );
-  };
+  const slide = getActiveSlide();
+  const selectedBlock = slide?.blocks?.find(b => b.id === selectedBlockId);
 
   if (showPreview) {
     return (
       <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
         <div className="fixed top-4 right-4 z-50">
-          <button 
-            onClick={() => setShowPreview(false)}
-            className="bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-black transition-colors"
-          >
-            Exit Preview
-          </button>
+          <button onClick={() => setShowPreview(false)} className="bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg">Exit Preview</button>
         </div>
-        <ModuleViewer previewModule={formData as Module} onExitPreview={() => setShowPreview(false)} />
+        <ModuleViewer previewModule={formData} onExitPreview={() => setShowPreview(false)} />
       </div>
     );
   }
 
-  const activeSlide = getActiveSlide();
-
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-color)]">
-      {/* Top Header */}
-      <div className="h-16 bg-[var(--card-bg)] border-b border-gray-200 flex justify-between items-center px-6 shrink-0 z-10">
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
-            <ArrowLeft size={20} />
-          </button>
-          <h1 className="text-xl font-bold truncate max-w-md">{formData.title || 'Untitled Module'}</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <ThemeCustomizer />
-          <button
-            onClick={() => setShowPreview(true)}
-            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-[var(--primary)] hover:bg-blue-50 rounded-lg transition-colors"
-          >
-            <Eye size={18} />
-            <span className="hidden sm:inline">Preview</span>
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className={`bg-[var(--primary)] text-white px-6 py-2 rounded-lg flex items-center gap-2 font-medium hover:opacity-90 shadow-sm transition-all ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
-          >
-            {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-            {isSaving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
+    <div 
+      className="h-screen flex flex-col bg-[#F9FBFD] text-sm overflow-hidden" 
+      onMouseMove={handleMouseMove} 
+      onMouseUp={handleMouseUp}
+    >
+      {/* --- GOOGLE SLIDES STYLE HEADER --- */}
+      
+      {/* Row 1: Top Bar (Logo, Title, Share/Account) */}
+      <div className="h-12 flex items-center justify-between px-4 bg-white border-b border-gray-100 shrink-0">
+         <div className="flex items-center gap-3 flex-1">
+            <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 rounded-full text-[#F4B400]">
+               <Settings size={24} fill="#F4B400" className="text-white" /> {/* Placeholder Logo */}
+            </button>
+            <div className="flex flex-col">
+               <input 
+                 value={formData.title} 
+                 onChange={e => setFormData({ ...formData, title: e.target.value })}
+                 className="font-medium text-lg text-gray-800 bg-transparent border border-transparent hover:border-gray-300 rounded px-1.5 py-0.5 outline-none focus:border-blue-500 transition-colors w-64 truncate"
+                 placeholder="Untitled Module"
+               />
+               {/* Menu Bar */}
+               <div className="flex text-xs text-gray-600 gap-3 px-2 mt-0.5 select-none">
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">File</span>
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">Edit</span>
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">View</span>
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">Insert</span>
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">Format</span>
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">Slide</span>
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">Arrange</span>
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">Tools</span>
+                  <span className="cursor-pointer hover:bg-gray-100 px-1 rounded">Help</span>
+               </div>
+            </div>
+         </div>
+         <div className="flex items-center gap-2">
+            <button onClick={() => setShowPreview(true)} className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-full border border-gray-300 font-medium">
+               <Eye size={16} /> <span className="hidden md:inline">Preview</span>
+            </button>
+            <button onClick={handleSave} disabled={isSaving} className="bg-[#1A73E8] text-white px-6 py-2 rounded-full font-medium hover:shadow-md hover:bg-[#1557B0] transition-all flex items-center gap-2">
+               {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} 
+               <span>Save</span>
+            </button>
+         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
-        
-        {/* Sidebar Navigation */}
-        <div className="w-64 bg-[var(--card-bg)] border-r border-gray-200 flex flex-col overflow-hidden shrink-0">
-          <div className="p-4 overflow-y-auto flex-1 space-y-1">
-            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Structure</div>
-            
-            <button
-              onClick={() => setActiveSection('general')}
-              className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors ${
-                activeSection === 'general' ? 'bg-blue-50 text-[var(--primary)]' : 'text-gray-600 hover:bg-gray-50'
-              }`}
+      {/* Row 2: The Ribbon Toolbar */}
+      <div className="h-10 bg-[#EDF2FA] border-b border-gray-300 flex items-center px-4 gap-1 shrink-0 overflow-x-auto select-none">
+         {/* History */}
+         <div className="flex gap-0.5">
+           <RibbonButton icon={<Undo2 size={16} />} onClick={undo} label="" />
+           <RibbonButton icon={<Redo2 size={16} />} onClick={redo} label="" />
+           <RibbonButton icon={<Printer size={16} />} onClick={() => window.print()} label="" />
+           {/* Paint format placeholder */}
+           <RibbonButton icon={<PaintBucket size={16} />} label="" /> 
+         </div>
+         <Divider />
+         
+         {/* Zoom */}
+         <div className="flex items-center gap-1 bg-white border border-gray-300 rounded px-2 py-0.5 h-7">
+            <ZoomIn size={14} className="text-gray-500" />
+            <select 
+              value={Math.round(zoom * 100)} 
+              onChange={(e) => setZoom(parseInt(e.target.value) / 100)}
+              className="bg-transparent text-xs font-medium outline-none cursor-pointer w-16"
             >
-              <Settings size={16} />
-              General Info
-            </button>
+               <option value="50">50%</option>
+               <option value="75">75%</option>
+               <option value="100">100%</option>
+               <option value="150">150%</option>
+               <option value="200">200%</option>
+            </select>
+         </div>
+         <Divider />
 
-            <div className="mt-6 mb-2 px-2 flex justify-between items-center group">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Slides</span>
-              <button onClick={addSlide} className="text-[var(--primary)] p-1 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity" title="Add Slide">
-                <Plus size={14} />
-              </button>
-            </div>
+         {/* Selection Mode */}
+         <RibbonButton icon={<MousePointer2 size={16} />} active={!draggedSlideIndex} label="" />
+         <Divider />
 
-            <div className="space-y-1">
-              {formData.slides?.map((slide, idx) => (
-                <button
-                  key={slide.id}
-                  onClick={() => setActiveSection(slide.id)}
-                  className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between text-sm transition-colors group ${
-                    activeSection === slide.id ? 'bg-blue-50 text-[var(--primary)]' : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 truncate">
-                    <Layout size={16} className="shrink-0" />
-                    <span className="truncate">{slide.title || `Slide ${idx + 1}`}</span>
+         {/* Insert Tools */}
+         <div className="flex gap-0.5">
+           <RibbonButton icon={<div className="font-serif font-bold border border-gray-600 rounded px-1 text-[10px] bg-white">T</div>} onClick={() => addBlock('text')} label="" />
+           <RibbonButton icon={<ImageIcon size={16} />} onClick={() => addBlock('image')} label="" />
+           <RibbonButton icon={<Square size={16} />} onClick={() => addBlock('shape')} label="" />
+           <RibbonButton icon={<Circle size={16} />} onClick={() => addBlock('shape', { style: { borderRadius: 100, backgroundColor: '#FF8A80' } })} label="" />
+           <RibbonButton icon={<MonitorPlay size={16} />} onClick={() => addBlock('video')} label="" />
+           <RibbonButton icon={<Youtube size={16} />} onClick={() => addBlock('youtube')} label="" />
+         </div>
+         <Divider />
+
+         {/* Contextual Tools (Text/Shape Styling) */}
+         {selectedBlock && (
+           <div className="flex gap-0.5 items-center animate-in fade-in slide-in-from-top-1 duration-200">
+             {selectedBlock.type === 'text' && (
+               <>
+                 <select 
+                   className="h-7 border border-gray-300 rounded text-xs bg-white px-1"
+                   value={selectedBlock.style?.fontFamily || 'Arial'}
+                   onChange={(e) => updateBlockStyle(activeSection, selectedBlock.id, { fontFamily: e.target.value })}
+                 >
+                   <option value="Arial">Arial</option>
+                   <option value="Georgia">Georgia</option>
+                   <option value="Times New Roman">Times New Roman</option>
+                   <option value="Courier New">Courier New</option>
+                 </select>
+                 <Divider />
+                 <select 
+                   className="h-7 border border-gray-300 rounded text-xs bg-white px-1 w-12"
+                   value={selectedBlock.style?.fontSize || 16}
+                   onChange={(e) => updateBlockStyle(activeSection, selectedBlock.id, { fontSize: parseInt(e.target.value) })}
+                 >
+                   {[10,12,14,16,18,24,30,36,48,60,72].map(s => <option key={s} value={s}>{s}</option>)}
+                 </select>
+                 <Divider />
+                 <RibbonButton icon={<Bold size={14} />} onClick={() => updateBlockStyle(activeSection, selectedBlock.id, { fontWeight: selectedBlock.style?.fontWeight === 'bold' ? 'normal' : 'bold' })} active={selectedBlock.style?.fontWeight === 'bold'} />
+                 <RibbonButton icon={<div className="w-3 h-3 rounded-full border border-gray-400" style={{background: selectedBlock.style?.color || '#000'}}></div>} onClick={() => { /* Quick color toggle for demo */ updateBlockStyle(activeSection, selectedBlock.id, { color: selectedBlock.style?.color === '#FF0000' ? '#000000' : '#FF0000' }) }} label="" />
+                 <Divider />
+                 <RibbonButton icon={<AlignLeft size={14} />} onClick={() => updateBlockStyle(activeSection, selectedBlock.id, { textAlign: 'left' })} active={selectedBlock.style?.textAlign === 'left'} />
+                 <RibbonButton icon={<AlignCenter size={14} />} onClick={() => updateBlockStyle(activeSection, selectedBlock.id, { textAlign: 'center' })} active={selectedBlock.style?.textAlign === 'center'} />
+                 <RibbonButton icon={<AlignRight size={14} />} onClick={() => updateBlockStyle(activeSection, selectedBlock.id, { textAlign: 'right' })} active={selectedBlock.style?.textAlign === 'right'} />
+               </>
+             )}
+             {(selectedBlock.type === 'shape' || selectedBlock.type === 'text') && (
+                <>
+                  <Divider />
+                  <div className="flex flex-col items-center">
+                    <span className="text-[8px] text-gray-500 mb-0.5">Fill</span>
+                    <input type="color" className="w-5 h-5 p-0 border-0 rounded cursor-pointer" value={selectedBlock.style?.backgroundColor || '#ffffff'} onChange={(e) => updateBlockStyle(activeSection, selectedBlock.id, { backgroundColor: e.target.value })} />
                   </div>
-                  {formData.slides && formData.slides.length > 1 && (
-                     <span 
-                       onClick={(e) => { e.stopPropagation(); deleteSlide(slide.id); }}
-                       className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 p-1"
-                     >
-                       <Trash size={12} />
-                     </span>
-                  )}
-                </button>
-              ))}
-            </div>
+                </>
+             )}
+             <Divider />
+             <RibbonButton icon={<Trash size={14} className="text-red-500" />} onClick={() => deleteBlock(activeSection, selectedBlock.id)} label="" />
+             <div className="flex flex-col ml-1">
+               <button onClick={() => updateBlockStyle(activeSection, selectedBlock.id, { zIndex: (selectedBlock.style?.zIndex || 0) + 1 })} className="text-[10px] hover:bg-gray-200 px-1 rounded">Forward</button>
+               <button onClick={() => updateBlockStyle(activeSection, selectedBlock.id, { zIndex: Math.max(0, (selectedBlock.style?.zIndex || 0) - 1) })} className="text-[10px] hover:bg-gray-200 px-1 rounded">Back</button>
+             </div>
+           </div>
+         )}
 
-            <button
-              onClick={addSlide}
-              className="w-full mt-2 py-2 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-colors flex items-center justify-center gap-1"
-            >
-              <Plus size={12} /> Add Slide
-            </button>
-            
-            <div className="relative w-full mt-2">
-              <input
-                type="file"
-                accept=".pdf"
-                onChange={handleImportPdfSlides}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                disabled={isProcessingPdf}
-              />
-              <button
-                className={`w-full py-2 bg-gray-100 rounded-lg text-xs text-gray-700 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1 ${isProcessingPdf ? 'opacity-50' : ''}`}
-              >
-                {isProcessingPdf ? <Loader2 size={12} className="animate-spin" /> : <FileUp size={12} />}
-                {isProcessingPdf ? 'Importing...' : 'Import Slides from PDF'}
-              </button>
-            </div>
+         {/* Right Side Buttons */}
+         <div className="ml-auto flex items-center gap-2">
+            <button className="text-xs font-medium px-2 py-1 hover:bg-gray-200 rounded transition-colors text-gray-600">Background</button>
+            <button className="text-xs font-medium px-2 py-1 hover:bg-gray-200 rounded transition-colors text-gray-600">Layout</button>
+            <button className="text-xs font-medium px-2 py-1 hover:bg-gray-200 rounded transition-colors text-gray-600">Theme</button>
+            <button className="text-xs font-medium px-2 py-1 hover:bg-gray-200 rounded transition-colors text-gray-600">Transition</button>
+         </div>
+      </div>
 
-            <div className="mt-6 mb-2 px-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Assessment</div>
-            <button
-              onClick={() => setActiveSection('quiz')}
-              className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 text-sm font-medium transition-colors ${
-                activeSection === 'quiz' ? 'bg-blue-50 text-[var(--primary)]' : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <CheckCircle size={16} />
-              Quiz
-            </button>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar - Slide List */}
+        <div className="w-48 bg-white border-r border-gray-200 flex flex-col shrink-0 overflow-hidden">
+          <div className="p-2 overflow-y-auto flex-1 space-y-2">
+             <div className="flex items-center justify-between px-2 mb-2">
+                <span className="text-xs font-bold text-gray-500 uppercase">Slides</span>
+                <button onClick={() => {
+                   const id = generateId();
+                   const newSlide = { id, title: `Slide ${(formData.slides?.length||0)+1}`, content: '', layout: 'freeform', blocks: [] };
+                   const newSlides = [...formData.slides, newSlide];
+                   setFormData({ ...formData, slides: newSlides });
+                   pushToHistory({ ...formData, slides: newSlides });
+                   setActiveSection(id);
+                 }} className="p-1 hover:bg-gray-100 rounded text-blue-600"><Plus size={16}/></button>
+             </div>
+             
+             {formData.slides.map((s, idx) => (
+                <div 
+                  key={s.id} 
+                  onClick={() => setActiveSection(s.id)}
+                  className={`relative p-2 rounded cursor-pointer border-2 transition-all group ${activeSection === s.id ? 'border-blue-400 bg-blue-50 shadow-sm' : 'border-transparent hover:bg-gray-50'}`}
+                >
+                   <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold text-gray-400 w-4">{idx + 1}</span>
+                      <div className="aspect-video bg-white border border-gray-200 flex-1 relative overflow-hidden shadow-sm">
+                          {/* Mini Preview */}
+                          {s.blocks?.map(b => (
+                             <div key={b.id} className="absolute bg-gray-200 opacity-50" 
+                                  style={{ 
+                                    left: `${(b.x / CANVAS_WIDTH) * 100}%`, top: `${(b.y / CANVAS_HEIGHT) * 100}%`, 
+                                    width: `${(b.width / CANVAS_WIDTH) * 100}%`, height: `${(b.height / CANVAS_HEIGHT) * 100}%` 
+                                  }} 
+                             />
+                          ))}
+                      </div>
+                   </div>
+                   <button 
+                     onClick={(e) => { 
+                       e.stopPropagation(); 
+                       const newSlides = formData.slides.filter(slide => slide.id !== s.id);
+                       setFormData({ ...formData, slides: newSlides });
+                       pushToHistory({ ...formData, slides: newSlides });
+                       if (activeSection === s.id) setActiveSection('general');
+                     }}
+                     className="absolute top-1 right-1 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                   >
+                     <Trash size={12} />
+                   </button>
+                </div>
+             ))}
+
+             <div className="border-t border-gray-200 mt-4 pt-2">
+               <button onClick={() => setActiveSection('general')} className={`w-full text-left px-2 py-1.5 rounded text-xs font-medium flex gap-2 items-center ${activeSection === 'general' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 text-gray-600'}`}>
+                 <Settings size={14}/> General Info
+               </button>
+               <button onClick={() => setActiveSection('quiz')} className={`w-full text-left px-2 py-1.5 rounded text-xs font-medium flex gap-2 items-center ${activeSection === 'quiz' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 text-gray-600'}`}>
+                 <CheckCircle size={14}/> Quiz Editor
+               </button>
+             </div>
           </div>
         </div>
 
-        {/* Editor Pane */}
-        <div className="flex-1 overflow-y-auto bg-[var(--bg-color)] p-8">
-          <div className="max-w-5xl mx-auto">
-            
-            {/* General Settings */}
-            {activeSection === 'general' && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-3xl mx-auto">
-                <div className="bg-[var(--card-bg)] p-6 rounded-xl border border-gray-200 shadow-sm">
-                  <h2 className="text-xl font-bold mb-4">Module Details</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Module Title</label>
-                      <input
-                        type="text"
-                        value={formData.title}
-                        onChange={e => setFormData({ ...formData, title: e.target.value })}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--primary)] outline-none"
-                        placeholder="Enter module title"
+        {/* Main Canvas Area */}
+        <div className="flex-1 bg-[#F1F3F4] flex flex-col relative overflow-hidden">
+           {activeSection !== 'general' && activeSection !== 'quiz' && slide ? (
+             <div 
+               className="flex-1 overflow-auto flex items-center justify-center p-8 outline-none" 
+               onClick={() => setSelectedBlockId(null)}
+             >
+                <div 
+                   className="bg-white shadow-lg relative transition-transform duration-75 origin-center"
+                   style={{ 
+                     width: CANVAS_WIDTH, 
+                     height: CANVAS_HEIGHT, 
+                     transform: `scale(${zoom})`,
+                     // We use transform scale, but ensure margin accounts for the scaled size so it doesn't clip
+                     margin: `${(CANVAS_HEIGHT * (zoom - 1)) / 2}px ${(CANVAS_WIDTH * (zoom - 1)) / 2}px` 
+                   }}
+                   ref={canvasRef}
+                   onDragOver={(e) => e.preventDefault()}
+                >
+                   {/* Background Grid (Optional) */}
+                   {/* <div className="absolute inset-0 pointer-events-none opacity-5" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }} /> */}
+                   
+                   {slide.blocks?.map(block => (
+                      <CanvasBlock 
+                        key={block.id} 
+                        block={block} 
+                        isSelected={selectedBlockId === block.id}
+                        zoom={zoom}
+                        onMouseDown={handleMouseDown}
+                        onUpdate={(blockId, changes) => updateBlock(activeSection, blockId, changes)}
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Description</label>
-                      <textarea
-                        value={formData.description}
-                        onChange={e => setFormData({ ...formData, description: e.target.value })}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--primary)] outline-none h-24 resize-none"
-                        placeholder="What is this module about?"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Thumbnail Image</label>
-                      <div className="flex flex-col gap-2">
-                         <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={formData.thumbnail || ''}
-                              onChange={e => setFormData({ ...formData, thumbnail: e.target.value })}
-                              className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--primary)] outline-none"
-                              placeholder="https://example.com/image.jpg"
-                            />
-                            <div className="relative">
-                               <input type="file" accept="image/*" onChange={handleThumbnailUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                               <button className="h-full px-4 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-200">
-                                  Upload
-                               </button>
-                            </div>
-                         </div>
-                         {formData.thumbnail && (
-                            <div className="mt-2 h-32 w-full bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
-                               <img src={formData.thumbnail} alt="Preview" className="w-full h-full object-cover" />
-                            </div>
-                         )}
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">Paste an image URL or upload to set the course card thumbnail.</p>
-                    </div>
-                  </div>
+                   ))}
                 </div>
-
-                <div className="bg-[var(--card-bg)] p-6 rounded-xl border border-gray-200 shadow-sm">
-                  <h2 className="text-xl font-bold mb-4">Attachments</h2>
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition-colors cursor-pointer relative">
-                    <input type="file" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                    <Upload size={24} className="mx-auto text-gray-400 mb-2" />
-                    <span className="text-[var(--primary)] font-medium">Upload File</span>
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    {formData.files?.map((file) => (
-                      <div key={file.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                        <div className="flex items-center gap-3">
-                          <FileText size={16} className="text-gray-500" />
-                          <span className="text-sm font-medium">{file.name}</span>
-                        </div>
-                        <button
-                          onClick={() => setFormData(prev => ({ ...prev, files: prev.files?.filter(f => f.id !== file.id) }))}
-                          className="text-red-400 hover:text-red-600 p-1"
-                        >
-                          <Trash size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Slide Editor */}
-            {activeSection !== 'general' && activeSection !== 'quiz' && activeSlide && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="bg-[var(--card-bg)] p-6 rounded-xl border border-gray-200 shadow-sm">
-                  {/* Slide Title */}
-                  <div className="flex justify-between items-center mb-6 pb-6 border-b border-gray-100">
-                     <div className="flex-1 mr-8">
-                       <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Slide Title</label>
-                       <input
-                        type="text"
-                        value={activeSlide.title}
-                        onChange={(e) => updateSlide(activeSection, 'title', e.target.value)}
-                        className="text-2xl font-bold bg-transparent border-b border-gray-200 hover:border-gray-400 focus:border-[var(--primary)] outline-none px-1 py-1 w-full transition-colors"
-                        placeholder="Enter title here..."
-                      />
-                     </div>
-                     <div className="text-right">
-                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Layout</label>
-                        <div className="flex gap-2">
-                          <LayoutButton 
-                            layout="Text Only" 
-                            icon={<FileText size={20} />} 
-                            active={activeSlide.layout === 'text-only'}
-                            onClick={() => updateSlide(activeSection, 'layout', 'text-only')}
-                          />
-                          <LayoutButton 
-                            layout="Media Left" 
-                            icon={<AlignLeft size={20} />} 
-                            active={activeSlide.layout === 'media-left'}
-                            onClick={() => updateSlide(activeSection, 'layout', 'media-left')}
-                          />
-                          <LayoutButton 
-                            layout="Media Right" 
-                            icon={<AlignRight size={20} />} 
-                            active={activeSlide.layout === 'media-right'}
-                            onClick={() => updateSlide(activeSection, 'layout', 'media-right')}
-                          />
-                          <LayoutButton 
-                            layout="Full Media" 
-                            icon={<Maximize size={20} />} 
-                            active={activeSlide.layout === 'full-media'}
-                            onClick={() => updateSlide(activeSection, 'layout', 'full-media')}
-                          />
-                        </div>
-                     </div>
-                  </div>
-                  
-                  {/* Content Area Based on Layout */}
-                  <div className="min-h-[400px]">
-                    {activeSlide.layout === 'text-only' && (
-                      <div className="max-w-3xl mx-auto">
-                        <RichTextEditor
-                          key={`rte-${activeSection}`}
-                          initialContent={activeSlide.content || ''}
-                          onChange={(content) => updateSlide(activeSection, 'content', content)}
-                        />
-                      </div>
+             </div>
+           ) : (
+              // Form View for General/Quiz
+              <div className="flex-1 overflow-y-auto p-8 bg-white">
+                 <div className="max-w-2xl mx-auto">
+                    {activeSection === 'general' && (
+                       <div className="space-y-6">
+                          <h2 className="text-xl font-bold border-b pb-2">Module Settings</h2>
+                          <div>
+                             <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                             <input className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} />
+                          </div>
+                          <div>
+                             <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                             <textarea rows={4} className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+                          </div>
+                          <div>
+                             <label className="block text-sm font-medium text-gray-700 mb-1">Certificate Title</label>
+                             <input className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none" value={formData.certificateTitle || ''} onChange={e => setFormData({...formData, certificateTitle: e.target.value})} placeholder="e.g. Certified Volunteer" />
+                          </div>
+                       </div>
                     )}
+                    {activeSection === 'quiz' && (
+                       <div className="space-y-6">
+                          <div className="flex justify-between items-center border-b pb-2">
+                             <h2 className="text-xl font-bold">Quiz Questions</h2>
+                             <button 
+                               onClick={() => {
+                                  const newQ: Question = { id: generateId(), text: 'New Question', options: ['Option 1', 'Option 2'], correctOptionIndex: 0 };
+                                  const newQuiz = { ...formData.quiz, enabled: true, questions: [...formData.quiz.questions, newQ] };
+                                  setFormData({ ...formData, quiz: newQuiz });
+                                  pushToHistory({ ...formData, quiz: newQuiz });
+                               }}
+                               className="text-blue-600 text-sm font-medium hover:underline flex items-center gap-1"
+                             >
+                                <Plus size={16}/> Add Question
+                             </button>
+                          </div>
+                          
+                          {formData.quiz.questions.length === 0 && <div className="text-center text-gray-400 py-10">No questions yet. Click "Add Question" to start.</div>}
 
-                    {(activeSlide.layout === 'media-left' || activeSlide.layout === 'media-right') && (
-                      <div className={`grid grid-cols-2 gap-6 h-full ${activeSlide.layout === 'media-right' ? 'direction-rtl' : ''}`}>
-                         <div className={activeSlide.layout === 'media-right' ? 'order-2' : 'order-1'}>
-                           <MediaUploader slideId={activeSection} currentMedia={activeSlide.media} />
-                         </div>
-                         <div className={activeSlide.layout === 'media-right' ? 'order-1' : 'order-2'}>
-                            <RichTextEditor
-                              key={`rte-${activeSection}`}
-                              initialContent={activeSlide.content || ''}
-                              onChange={(content) => updateSlide(activeSection, 'content', content)}
-                            />
-                         </div>
-                      </div>
-                    )}
-
-                    {activeSlide.layout === 'full-media' && (
-                      <div className="space-y-4">
-                        <div className="h-[400px]">
-                          <MediaUploader slideId={activeSection} currentMedia={activeSlide.media} />
-                        </div>
-                        <div className="max-w-3xl mx-auto">
-                          <RichTextEditor
-                            key={`rte-${activeSection}`}
-                            initialContent={activeSlide.content || ''}
-                            onChange={(content) => updateSlide(activeSection, 'content', content)}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Quiz Editor */}
-            {activeSection === 'quiz' && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-3xl mx-auto">
-                 <div className="bg-[var(--card-bg)] p-6 rounded-xl border border-gray-200 shadow-sm">
-                   <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold">Quiz Questions</h2>
-                    <button
-                      onClick={addQuestion}
-                      className="text-sm bg-[var(--primary)] text-white px-3 py-1.5 rounded-lg hover:opacity-90 flex items-center gap-1"
-                    >
-                      <Plus size={14} /> Add Question
-                    </button>
-                  </div>
-
-                  <div className="space-y-6">
-                    {formData.quiz?.questions.map((q, qIndex) => (
-                      <div key={q.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200 relative">
-                        <button
-                           onClick={() => setFormData(prev => ({
-                             ...prev,
-                             quiz: { ...prev.quiz!, questions: prev.quiz!.questions.filter((_, i) => i !== qIndex) }
-                           }))}
-                           className="absolute top-4 right-4 text-gray-400 hover:text-red-500"
-                        >
-                          <Trash size={16} />
-                        </button>
-
-                        <div className="mb-4 pr-8">
-                          <label className="text-xs uppercase font-bold text-gray-500 mb-1 block">Question {qIndex + 1}</label>
-                          <input
-                            type="text"
-                            value={q.text}
-                            onChange={(e) => updateQuestion(qIndex, 'text', e.target.value)}
-                            className="w-full p-2 border border-gray-300 rounded bg-white"
-                            placeholder="Enter question text..."
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          {q.options.map((opt, oIndex) => (
-                            <div key={oIndex} className="flex items-center gap-2">
-                              <button
-                                onClick={() => updateQuestion(qIndex, 'correctOptionIndex', oIndex)}
-                                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                                  q.correctOptionIndex === oIndex
-                                    ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
-                                    : 'border-gray-300 text-transparent hover:border-gray-400'
-                                }`}
-                              >
-                                <CheckCircle size={12} fill="currentColor" />
-                              </button>
-                              <input
-                                type="text"
-                                value={opt}
-                                onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
-                                className="flex-1 p-2 border border-gray-300 rounded text-sm bg-white"
-                                placeholder={`Option ${oIndex + 1}`}
-                              />
-                               <button
-                                onClick={() => {
-                                  const newQuestions = [...formData.quiz!.questions];
-                                  newQuestions[qIndex].options = newQuestions[qIndex].options.filter((_, i) => i !== oIndex);
-                                  if (q.correctOptionIndex >= oIndex && q.correctOptionIndex > 0) newQuestions[qIndex].correctOptionIndex--;
-                                  setFormData(prev => ({ ...prev, quiz: { ...prev.quiz!, questions: newQuestions } }));
-                                }}
-                                 className="text-gray-400 hover:text-red-500"
-                                 disabled={q.options.length <= 2}
-                              >
-                                <Trash size={14} />
-                              </button>
-                            </div>
+                          {formData.quiz.questions.map((q, i) => (
+                             <div key={q.id} className="border border-gray-200 p-4 rounded-lg bg-gray-50">
+                                <div className="flex justify-between mb-2">
+                                   <span className="font-bold text-gray-500">Question {i+1}</span>
+                                   <button className="text-red-500 hover:text-red-700" onClick={() => {
+                                      const newQs = formData.quiz.questions.filter(qu => qu.id !== q.id);
+                                      setFormData({ ...formData, quiz: { ...formData.quiz, questions: newQs } });
+                                   }}><Trash size={16}/></button>
+                                </div>
+                                <input 
+                                  className="w-full p-2 mb-3 border border-gray-300 rounded text-sm font-medium" 
+                                  value={q.text} 
+                                  onChange={(e) => {
+                                     const newQs = [...formData.quiz.questions];
+                                     newQs[i].text = e.target.value;
+                                     setFormData({ ...formData, quiz: { ...formData.quiz, questions: newQs } });
+                                  }}
+                                  placeholder="Enter question text..."
+                                />
+                                <div className="space-y-2 pl-4 border-l-2 border-gray-200">
+                                   {q.options.map((opt, optIdx) => (
+                                      <div key={optIdx} className="flex items-center gap-2">
+                                         <input 
+                                           type="radio" 
+                                           name={`correct-${q.id}`} 
+                                           checked={q.correctOptionIndex === optIdx} 
+                                           onChange={() => {
+                                              const newQs = [...formData.quiz.questions];
+                                              newQs[i].correctOptionIndex = optIdx;
+                                              setFormData({ ...formData, quiz: { ...formData.quiz, questions: newQs } });
+                                           }}
+                                         />
+                                         <input 
+                                           className="flex-1 p-1 border border-gray-300 rounded text-sm" 
+                                           value={opt} 
+                                           onChange={(e) => {
+                                              const newQs = [...formData.quiz.questions];
+                                              newQs[i].options[optIdx] = e.target.value;
+                                              setFormData({ ...formData, quiz: { ...formData.quiz, questions: newQs } });
+                                           }}
+                                         />
+                                      </div>
+                                   ))}
+                                   <button className="text-xs text-blue-500 hover:underline pl-6" onClick={() => {
+                                      const newQs = [...formData.quiz.questions];
+                                      newQs[i].options.push(`Option ${newQs[i].options.length + 1}`);
+                                      setFormData({ ...formData, quiz: { ...formData.quiz, questions: newQs } });
+                                   }}>+ Add Option</button>
+                                </div>
+                             </div>
                           ))}
-                          <button
-                            onClick={() => {
-                               const newQuestions = [...formData.quiz!.questions];
-                               newQuestions[qIndex].options.push('');
-                               setFormData(prev => ({ ...prev, quiz: { ...prev.quiz!, questions: newQuestions } }));
-                            }}
-                            className="text-xs text-[var(--primary)] font-medium ml-7 mt-1 hover:underline"
-                          >
-                            + Add Option
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {(!formData.quiz?.questions || formData.quiz.questions.length === 0) && (
-                      <div className="text-center py-8 text-gray-400 text-sm">
-                        No questions yet. Click "Add Question" to create a quiz.
-                      </div>
+                       </div>
                     )}
-                  </div>
                  </div>
               </div>
-            )}
-          </div>
+           )}
         </div>
       </div>
     </div>

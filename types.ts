@@ -32,7 +32,7 @@ export interface ModuleStats {
   avgScore?: number;
 }
 
-export type SlideLayout = 'text-only' | 'media-left' | 'media-right' | 'full-media';
+export type SlideLayout = 'freeform' | 'text-only' | 'media-left' | 'media-right' | 'full-media';
 
 export interface SlideMedia {
   type: 'image' | 'video';
@@ -40,12 +40,42 @@ export interface SlideMedia {
   name?: string;
 }
 
+export type BlockType = 'text' | 'image' | 'video' | 'youtube' | 'shape';
+
+export interface BlockStyle {
+  color?: string;
+  backgroundColor?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  textAlign?: 'left' | 'center' | 'right' | 'justify';
+  fontWeight?: 'normal' | 'bold';
+  zIndex?: number;
+  borderRadius?: number;
+  borderColor?: string;
+  borderWidth?: number;
+  opacity?: number;
+}
+
+export interface SlideBlock {
+  id: string;
+  type: BlockType;
+  content: string; 
+  // Position and Size (percentage based or fixed canvas units)
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  style?: BlockStyle;
+}
+
 export interface Slide {
   id: string;
   title: string;
-  content: string; // HTML string for this slide
+  content: string; // Legacy
   layout: SlideLayout;
-  media?: SlideMedia;
+  media?: SlideMedia; // Legacy
+  blocks?: SlideBlock[]; 
+  background?: string; // Hex color or Image URL
 }
 
 export interface Module {

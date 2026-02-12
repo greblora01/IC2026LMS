@@ -1,14 +1,109 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Download, FileText, PlayCircle, Image as ImageIcon, File, CheckCircle, XCircle, ArrowRight, ArrowLeft, X, Printer, Award, Loader } from 'lucide-react';
+import { 
+  Download, FileText, PlayCircle, Image as ImageIcon, File, 
+  CheckCircle, XCircle, ArrowRight, ArrowLeft, X, Printer, 
+  Award, Loader, Lock, BookOpen, HelpCircle 
+} from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
-import { Module } from '../types';
-import { ThemeCustomizer } from '../components/ThemeCustomizer';
+import { Module, SlideBlock } from '../types';
 
 interface ModuleViewerProps {
   previewModule?: Module;
   onExitPreview?: () => void;
 }
+
+// Canvas Reference Dimensions (must match editor)
+const CANVAS_WIDTH = 960;
+const CANVAS_HEIGHT = 540;
+
+const BlockRenderer: React.FC<{ block: SlideBlock }> = ({ block }) => {
+  // Use Container Query Units (cqw) for responsive scaling relative to the slide container
+  // 100cqw = container width.
+  // formula: (value / CANVAS_WIDTH) * 100
+  
+  const toCQW = (val: number) => (val / CANVAS_WIDTH) * 100;
+  
+  const style: React.CSSProperties = {
+     position: 'absolute',
+     left: `${toCQW(block.x)}cqw`,
+     top: `${(block.y / CANVAS_HEIGHT) * 100}%`, // Height in % relative to container height (which is locked to aspect ratio)
+     width: `${toCQW(block.width)}cqw`,
+     height: `${(block.height / CANVAS_HEIGHT) * 100}%`,
+     zIndex: block.style?.zIndex || 1,
+     backgroundColor: block.style?.backgroundColor,
+     borderRadius: block.style?.borderRadius ? `${toCQW(block.style.borderRadius)}cqw` : undefined,
+     overflow: 'hidden'
+  };
+
+  const contentStyle = {
+    fontSize: block.style?.fontSize ? `${toCQW(block.style.fontSize)}cqw` : undefined,
+    color: block.style?.color,
+    textAlign: block.style?.textAlign,
+    fontWeight: block.style?.fontWeight,
+    fontFamily: 'sans-serif',
+    width: '100%',
+    height: '100%',
+    lineHeight: '1.4'
+  };
+
+  if (block.type === 'text') {
+    return (
+      <div 
+        style={style}
+      >
+         <div 
+           style={contentStyle}
+           dangerouslySetInnerHTML={{ __html: block.content }} 
+         />
+      </div>
+    );
+  }
+  
+  if (block.type === 'image') {
+    return (
+      <div style={style}>
+         <img 
+            src={block.content} 
+            alt="Slide content" 
+            className="w-full h-full object-cover" 
+         />
+      </div>
+    );
+  }
+
+  if (block.type === 'video') {
+    return (
+      <div style={style}>
+         <video 
+           src={block.content} 
+           controls 
+           className="w-full h-full object-cover" 
+         />
+      </div>
+    );
+  }
+
+  if (block.type === 'youtube') {
+    return (
+      <div style={style} className="bg-black">
+         <iframe 
+           src={block.content} 
+           className="w-full h-full" 
+           frameBorder="0" 
+           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+           allowFullScreen
+         />
+      </div>
+    );
+  }
+
+  if (block.type === 'shape') {
+     return <div style={style} />;
+  }
+
+  return null;
+};
 
 export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExitPreview }) => {
   const { id } = useParams<{ id: string }>();
@@ -19,7 +114,10 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const [module, setModule] = useState<Module | undefined>(previewModule);
   const [loading, setLoading] = useState(!previewModule);
   const [error, setError] = useState<string | null>(null);
+  
+  // Navigation State
   const [currentSlideIndex, setCurrentSlideIndex] = useState(-1); 
+  const [maxVisitedSlideIndex, setMaxVisitedSlideIndex] = useState(-1);
   const [showResources, setShowResources] = useState(false);
 
   // Quiz State
@@ -32,12 +130,19 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const [userName, setUserName] = useState('');
   const [certificateDate, setCertificateDate] = useState('');
 
+  // Track progress
+  useEffect(() => {
+    setMaxVisitedSlideIndex(prev => Math.max(prev, currentSlideIndex));
+  }, [currentSlideIndex]);
+
   useEffect(() => {
     // 1. Preview Mode (from Editor)
     if (previewModule) {
       setModule(previewModule);
       setLoading(false);
       setAnswers(new Array(previewModule.quiz?.questions.length || 0).fill(-1));
+      setCurrentSlideIndex(-1);
+      setMaxVisitedSlideIndex(-1);
       return;
     }
 
@@ -59,6 +164,8 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
         .then((data: Module) => {
           setModule(data);
           setAnswers(new Array(data.quiz?.questions.length || 0).fill(-1));
+          setCurrentSlideIndex(-1);
+          setMaxVisitedSlideIndex(-1);
           setLoading(false);
         })
         .catch(err => {
@@ -82,6 +189,8 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
           sessionStorage.setItem(`viewed_${id}`, 'true');
         }
         setAnswers(new Array(foundModule.quiz?.questions.length || 0).fill(-1));
+        setCurrentSlideIndex(-1);
+        setMaxVisitedSlideIndex(-1);
       } else {
         setError("Module not found. It may have been deleted or the link is incorrect.");
       }
@@ -129,14 +238,17 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
     if (currentSlideIndex < maxIndex) {
       setCurrentSlideIndex(prev => prev + 1);
-      window.scrollTo(0, 0);
+      window.scrollTo(0, 0); // Scroll main content to top
+      const mainContent = document.getElementById('main-content');
+      if (mainContent) mainContent.scrollTop = 0;
     }
   };
 
   const handlePrev = () => {
     if (currentSlideIndex > -1) {
       setCurrentSlideIndex(prev => prev - 1);
-      window.scrollTo(0, 0);
+      const mainContent = document.getElementById('main-content');
+      if (mainContent) mainContent.scrollTop = 0;
     }
   };
 
@@ -177,33 +289,41 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     window.print();
   };
 
-  const renderMedia = (media: any, className = "w-full h-full object-cover rounded-xl shadow-md") => {
-    if (!media) return (
-       <div className="w-full h-64 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 border border-gray-200">
-          <ImageIcon size={48} className="opacity-20" />
-       </div>
-    );
-    if (media.type === 'video') {
-       if (media.url.includes('youtube') || media.url.includes('youtu.be')) {
-          return (
-             <iframe 
-               src={media.url} 
-               className={className} 
-               title={media.name || "Video content"}
-               frameBorder="0" 
-               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-               allowFullScreen
-             />
-          );
-       }
-      return <video src={media.url} className={className} controls controlsList="nodownload" />;
-    }
-    return <img src={media.url} alt={media.name || 'Slide image'} className={className} />;
-  };
+  const SidebarItem = ({ 
+    active, 
+    completed, 
+    locked, 
+    onClick, 
+    title, 
+    icon 
+  }: any) => (
+    <button
+      onClick={onClick}
+      disabled={locked}
+      className={`w-full text-left px-4 py-3 text-sm font-medium border-l-4 transition-all flex items-center justify-between group ${
+        active 
+          ? 'border-[var(--primary)] bg-blue-50 text-[var(--primary)]' 
+          : completed
+            ? 'border-green-400 bg-white text-gray-700 hover:bg-gray-50'
+            : 'border-transparent text-gray-400 cursor-not-allowed'
+      }`}
+    >
+      <div className="flex items-center gap-3 truncate pr-2">
+        {icon}
+        <span className="truncate">{title}</span>
+      </div>
+      {locked ? (
+        <Lock size={14} className="opacity-30 shrink-0" />
+      ) : completed && !active ? (
+        <CheckCircle size={14} className="text-green-500 shrink-0" />
+      ) : null}
+    </button>
+  );
 
   if (showCertificate) {
     return (
       <div className="min-h-screen bg-[var(--bg-color)] flex flex-col items-center justify-center p-4">
+        {/* Certificate UI (unchanged from previous) */}
         <div className="print:hidden w-full max-w-4xl flex justify-between items-center mb-6">
           <button 
             onClick={() => setShowCertificate(false)} 
@@ -319,6 +439,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     if (isQuizStep) {
       return (
         <div className="max-w-3xl mx-auto animate-in slide-in-from-right duration-300">
+           {/* Reusing existing quiz UI */}
            <div className="bg-[var(--card-bg)] rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-8">
             <div className="bg-[var(--primary)] text-white p-8">
               <h2 className="text-3xl font-bold">Knowledge Check</h2>
@@ -402,11 +523,27 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
     // 3. Slide Page Logic
     const slide = slides[currentSlideIndex];
-    if (!slide) return null; // Added safety check
-    const layout = slide.layout || 'text-only';
+    if (!slide) return null;
 
-    if (layout === 'text-only') {
+    // SCALABLE CANVAS RENDERER
+    // Use container-type: inline-size to allow blocks to scale perfectly
+    if (slide.blocks && slide.blocks.length > 0) {
       return (
+        <div className="w-full flex justify-center items-start pt-4 h-full">
+           <div 
+             className="relative w-full max-w-5xl aspect-video bg-white shadow-xl rounded-xl overflow-hidden border border-gray-100"
+             style={{ containerType: 'inline-size' } as React.CSSProperties} 
+           >
+              {slide.blocks.map(block => (
+                 <BlockRenderer key={block.id} block={block} />
+              ))}
+           </div>
+        </div>
+      );
+    }
+    
+    // Fallback for legacy text-only slides without blocks
+    return (
         <div className="max-w-5xl mx-auto h-full animate-in fade-in duration-300" key={slide.id}>
            <div className="mb-4">
                <h2 className="text-3xl font-bold text-[var(--text-color)]">{slide.title}</h2>
@@ -416,52 +553,11 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
             dangerouslySetInnerHTML={{ __html: slide.content }} 
           />
         </div>
-      );
-    }
-
-    if (layout === 'media-left' || layout === 'media-right') {
-      return (
-        <div className="max-w-5xl mx-auto h-full animate-in fade-in duration-300" key={slide.id}>
-           <div className="mb-4">
-               <h2 className="text-3xl font-bold text-[var(--text-color)]">{slide.title}</h2>
-           </div>
-          <div className="flex flex-col lg:flex-row gap-8 lg:gap-12 items-start">
-             <div className={`w-full lg:w-1/2 ${layout === 'media-right' ? 'lg:order-2' : 'lg:order-1'}`}>
-               {renderMedia(slide.media)}
-             </div>
-             <div className={`w-full lg:w-1/2 ${layout === 'media-right' ? 'lg:order-1' : 'lg:order-2'}`}>
-                <article 
-                  className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
-                  dangerouslySetInnerHTML={{ __html: slide.content }} 
-                />
-             </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (layout === 'full-media') {
-       return (
-        <div className="max-w-5xl mx-auto h-full animate-in fade-in duration-300" key={slide.id}>
-           <div className="mb-4">
-               <h2 className="text-3xl font-bold text-[var(--text-color)]">{slide.title}</h2>
-           </div>
-          <div className="space-y-6">
-             <div className="w-full aspect-video bg-black rounded-xl overflow-hidden shadow-lg">
-                {renderMedia(slide.media, "w-full h-full object-contain")}
-             </div>
-             <article 
-                className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
-                dangerouslySetInnerHTML={{ __html: slide.content }} 
-              />
-          </div>
-        </div>
-       );
-    }
+    );
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg-color)] flex flex-col">
+    <div className="min-h-screen bg-[var(--bg-color)] flex flex-col font-sans">
       {/* Viewer Header */}
       <div className="h-16 bg-[var(--card-bg)] border-b border-gray-200 flex items-center justify-between px-4 md:px-8 shrink-0 fixed top-0 w-full z-40 shadow-sm print:hidden">
          <div className="flex items-center gap-4">
@@ -476,7 +572,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
          </div>
          
          <div className="flex items-center gap-4">
-           <div className="hidden md:flex items-center gap-2 text-sm font-medium text-gray-500">
+           <div className="hidden lg:flex items-center gap-2 text-sm font-medium text-gray-500">
              <span>{currentSlideIndex === -1 ? 'Intro' : isQuizStep ? 'Quiz' : `Slide ${currentSlideIndex + 1} of ${totalSlides}`}</span>
              <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div 
@@ -486,8 +582,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
              </div>
            </div>
            
-           <ThemeCustomizer />
-
            {module.files.length > 0 && (
              <button 
                onClick={() => setShowResources(!showResources)}
@@ -502,7 +596,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
       {/* Resources Drawer */}
       {showResources && (
-        <div className="fixed top-16 right-0 w-80 h-[calc(100vh-64px)] bg-white shadow-2xl border-l border-gray-200 z-30 p-6 animate-in slide-in-from-right overflow-y-auto print:hidden">
+        <div className="fixed top-16 right-0 w-80 h-[calc(100vh-64px)] bg-white shadow-2xl border-l border-gray-200 z-50 p-6 animate-in slide-in-from-right overflow-y-auto print:hidden">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-lg">Resources</h3>
             <button onClick={() => setShowResources(false)}><X size={20} className="text-gray-400" /></button>
@@ -528,13 +622,72 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
         </div>
       )}
 
-      {/* Main Scroll Area */}
-      <main className="flex-1 mt-16 pb-24 px-4 md:px-8 py-8 overflow-y-auto print:p-0 print:m-0">
-         {renderContent()}
-      </main>
+      {/* Main Layout Container */}
+      <div className="flex flex-1 overflow-hidden pt-16 pb-[80px] print:pt-0 print:pb-0">
+         
+         {/* Left Sidebar Navigation (Desktop) */}
+         <aside className="w-64 bg-white border-r border-gray-200 overflow-y-auto hidden md:flex flex-col shrink-0 print:hidden z-30">
+            <div className="p-4 space-y-2">
+               <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Table of Contents</div>
+               
+               <SidebarItem 
+                 title="Introduction"
+                 icon={<BookOpen size={16} />} 
+                 active={currentSlideIndex === -1}
+                 completed={maxVisitedSlideIndex > -1}
+                 locked={false} 
+                 onClick={() => {
+                   setCurrentSlideIndex(-1);
+                   const main = document.getElementById('main-content');
+                   if (main) main.scrollTop = 0;
+                 }}
+               />
+
+               {slides.map((slide, idx) => (
+                  <SidebarItem
+                    key={slide.id}
+                    title={slide.title}
+                    icon={<FileText size={16} />}
+                    active={currentSlideIndex === idx}
+                    completed={maxVisitedSlideIndex > idx}
+                    locked={idx > maxVisitedSlideIndex}
+                    onClick={() => {
+                       if (idx <= maxVisitedSlideIndex) {
+                         setCurrentSlideIndex(idx);
+                         const main = document.getElementById('main-content');
+                         if (main) main.scrollTop = 0;
+                       }
+                    }}
+                  />
+               ))}
+
+               {module.quiz?.enabled && (
+                  <SidebarItem
+                    title="Knowledge Check"
+                    icon={<HelpCircle size={16} />}
+                    active={currentSlideIndex === totalSlides}
+                    completed={quizSubmitted} 
+                    locked={totalSlides > maxVisitedSlideIndex}
+                    onClick={() => {
+                       if (totalSlides <= maxVisitedSlideIndex) {
+                         setCurrentSlideIndex(totalSlides);
+                         const main = document.getElementById('main-content');
+                         if (main) main.scrollTop = 0;
+                       }
+                    }}
+                  />
+               )}
+            </div>
+         </aside>
+
+         {/* Scrollable Main Content */}
+         <main id="main-content" className="flex-1 overflow-y-auto px-4 md:px-12 py-8 print:p-0 print:overflow-visible">
+            {renderContent()}
+         </main>
+      </div>
 
       {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 w-full bg-[var(--card-bg)] border-t border-gray-200 p-4 flex justify-between items-center z-40 print:hidden">
+      <div className="fixed bottom-0 left-0 w-full bg-[var(--card-bg)] border-t border-gray-200 p-4 flex justify-between items-center z-40 print:hidden shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         <button
           onClick={handlePrev}
           disabled={currentSlideIndex === -1}
