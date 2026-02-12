@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Save, Upload, Plus, Trash, CheckCircle, Layout, 
   FileText, Settings, Play, Eye, AlignLeft, AlignRight, 
-  MonitorPlay, Image as ImageIcon, Maximize, FileUp, Loader2
+  MonitorPlay, Image as ImageIcon, Maximize, FileUp, Loader2, Link as LinkIcon
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { RichTextEditor } from '../components/RichTextEditor';
@@ -27,6 +27,7 @@ export const ModuleEditor: React.FC = () => {
   const [activeSection, setActiveSection] = useState<EditorSection>('general');
   const [showPreview, setShowPreview] = useState(false);
   const [isProcessingPdf, setIsProcessingPdf] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   const [formData, setFormData] = useState<Partial<Module>>({
     title: '',
@@ -60,22 +61,38 @@ export const ModuleEditor: React.FC = () => {
     }
   }, [id, isEditMode, getModule, navigate]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.title) return alert('Title is required');
+
+    setIsSaving(true);
 
     const moduleData = {
       ...formData,
       lastUpdated: Date.now()
     } as Module;
 
-    if (isEditMode && id) {
-      updateModule(id, moduleData);
-    } else {
-      moduleData.id = generateId();
-      moduleData.createdAt = Date.now();
-      addModule(moduleData);
+    try {
+      if (isEditMode && id) {
+        await updateModule(id, moduleData);
+      } else {
+        moduleData.id = generateId();
+        moduleData.createdAt = Date.now();
+        await addModule(moduleData);
+      }
+      navigate('/');
+    } catch (error: any) {
+      console.error("Save error:", error);
+      let msg = "Failed to save module to the database.";
+      // Check for common Firestore size error
+      if (error.code === 'resource-exhausted' || (error.message && error.message.includes('exceeds the maximum allowed size'))) {
+        msg = "The module is too large to save (Max 1MB). Please remove some images or reduce slide count.";
+      } else if (error.code === 'permission-denied') {
+         msg = "You do not have permission to save changes.";
+      }
+      alert(msg);
+    } finally {
+      setIsSaving(false);
     }
-    navigate('/');
   };
 
   // Helper to read file as base64
@@ -235,6 +252,13 @@ export const ModuleEditor: React.FC = () => {
     }
   };
 
+  // URL Helper for YouTube
+  const getEmbedUrl = (url: string) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : url;
+  };
+
   const getActiveSlide = () => formData.slides?.find(s => s.id === activeSection);
 
   // Quiz Management
@@ -273,43 +297,116 @@ export const ModuleEditor: React.FC = () => {
     </button>
   );
 
-  const MediaUploader = ({ slideId, currentMedia }: { slideId: string, currentMedia?: SlideMedia }) => (
-    <div className="w-full h-full min-h-[200px] border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center p-4 hover:bg-gray-50 transition-colors bg-[var(--bg-color)] relative overflow-hidden group">
-      {currentMedia ? (
-        <>
-          {currentMedia.type === 'video' ? (
-            <video src={currentMedia.url} className="w-full h-full object-contain" controls />
-          ) : (
-            <img src={currentMedia.url} alt="Slide media" className="w-full h-full object-contain" />
-          )}
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <button 
-              onClick={() => updateSlideMedia(slideId, undefined)}
-              className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600"
-              title="Remove Media"
-            >
-              <Trash size={16} />
-            </button>
+  const MediaUploader = ({ slideId, currentMedia }: { slideId: string, currentMedia?: SlideMedia }) => {
+    const [mode, setMode] = useState<'upload' | 'link'>('upload');
+    const [urlInput, setUrlInput] = useState('');
+
+    const handleAddUrl = () => {
+      if (!urlInput) return;
+      
+      let type: 'video' | 'image' = 'image';
+      let finalUrl = urlInput;
+
+      // Check for video link (YouTube)
+      if (urlInput.includes('youtube.com') || urlInput.includes('youtu.be')) {
+        type = 'video';
+        finalUrl = getEmbedUrl(urlInput);
+      } else if (urlInput.match(/\.(mp4|webm|ogg)$/i)) {
+        type = 'video';
+      }
+
+      const newMedia: SlideMedia = {
+        type,
+        url: finalUrl,
+        name: 'External Link'
+      };
+      
+      updateSlideMedia(slideId, newMedia);
+      setUrlInput('');
+    };
+
+    return (
+      <div className="w-full h-full min-h-[200px] border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center p-4 hover:bg-gray-50 transition-colors bg-[var(--bg-color)] relative overflow-hidden group">
+        {currentMedia ? (
+          <>
+            {currentMedia.type === 'video' ? (
+              currentMedia.url.includes('youtube') ? (
+                 <iframe 
+                    src={currentMedia.url} 
+                    className="w-full h-full pointer-events-none" 
+                    title="Video Preview"
+                  />
+              ) : (
+                <video src={currentMedia.url} className="w-full h-full object-contain" controls />
+              )
+            ) : (
+              <img src={currentMedia.url} alt="Slide media" className="w-full h-full object-contain" />
+            )}
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <button 
+                onClick={() => updateSlideMedia(slideId, undefined)}
+                className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600"
+                title="Remove Media"
+              >
+                <Trash size={16} />
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center w-full max-w-sm">
+             <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg">
+                <button 
+                  onClick={() => setMode('upload')}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${mode === 'upload' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  Upload File
+                </button>
+                <button 
+                  onClick={() => setMode('link')}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${mode === 'link' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  From URL
+                </button>
+             </div>
+
+             {mode === 'upload' ? (
+               <div className="text-center relative w-full">
+                  <input 
+                    type="file" 
+                    accept="image/*,video/*"
+                    onChange={(e) => handleSlideMediaUpload(e, slideId)} 
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                  />
+                  <div className="flex gap-2 mb-2 text-gray-400 justify-center">
+                    <ImageIcon size={24} />
+                    <MonitorPlay size={24} />
+                  </div>
+                  <span className="text-[var(--primary)] font-medium text-sm block">Click to Upload</span>
+                  <span className="text-xs text-gray-400 mt-1 block">Images or MP4 Videos</span>
+               </div>
+             ) : (
+               <div className="w-full flex flex-col gap-2">
+                 <input 
+                    type="text" 
+                    placeholder="https://youtube.com/..." 
+                    className="w-full p-2 text-sm border border-gray-300 rounded focus:border-[var(--primary)] outline-none"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                 />
+                 <button 
+                   onClick={handleAddUrl}
+                   className="w-full bg-[var(--primary)] text-white py-1.5 rounded text-sm font-medium hover:opacity-90 flex items-center justify-center gap-1"
+                 >
+                   <LinkIcon size={14} /> Add Link
+                 </button>
+                 <span className="text-[10px] text-gray-400 text-center">Supports YouTube, Images, & Video Files</span>
+               </div>
+             )}
           </div>
-        </>
-      ) : (
-        <>
-          <input 
-            type="file" 
-            accept="image/*,video/*"
-            onChange={(e) => handleSlideMediaUpload(e, slideId)} 
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-          />
-          <div className="flex gap-2 mb-2 text-gray-400">
-            <ImageIcon size={24} />
-            <MonitorPlay size={24} />
-          </div>
-          <span className="text-[var(--primary)] font-medium text-sm">Add Image or Video</span>
-          <span className="text-xs text-gray-400 mt-1">Click or drag file</span>
-        </>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   if (showPreview) {
     return (
@@ -350,10 +447,11 @@ export const ModuleEditor: React.FC = () => {
           </button>
           <button
             onClick={handleSave}
-            className="bg-[var(--primary)] text-white px-6 py-2 rounded-lg flex items-center gap-2 font-medium hover:opacity-90 shadow-sm transition-all"
+            disabled={isSaving}
+            className={`bg-[var(--primary)] text-white px-6 py-2 rounded-lg flex items-center gap-2 font-medium hover:opacity-90 shadow-sm transition-all ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
-            <Save size={18} />
-            Save
+            {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>

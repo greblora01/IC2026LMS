@@ -10,12 +10,12 @@ interface AppContextType {
   isCloud: boolean;
   isLoading: boolean;
   updateTheme: (newTheme: Partial<Theme>) => void;
-  addModule: (module: Module) => void;
-  updateModule: (id: string, module: Partial<Module>) => void;
-  deleteModule: (id: string) => void;
+  addModule: (module: Module) => Promise<void>;
+  updateModule: (id: string, module: Partial<Module>) => Promise<void>;
+  deleteModule: (id: string) => Promise<void>;
   getModule: (id: string) => Module | undefined;
-  incrementModuleView: (id: string) => void;
-  resetToDefaults: () => void;
+  incrementModuleView: (id: string) => Promise<void>;
+  resetToDefaults: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -86,12 +86,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addModule = async (module: Module) => {
     if (db) {
-      try {
-        await setDoc(doc(db, 'modules', module.id), module);
-      } catch (error) {
-        console.error("Error adding module: ", error);
-        alert("Failed to save module to database.");
-      }
+      // Let error propagate to component for handling
+      await setDoc(doc(db, 'modules', module.id), module);
     } else {
       const newModules = [module, ...modules];
       saveToLocalStorage(newModules);
@@ -100,15 +96,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const updateModule = async (id: string, updatedData: Partial<Module>) => {
     if (db) {
-      try {
-        const moduleRef = doc(db, 'modules', id);
-        await updateDoc(moduleRef, {
-          ...updatedData,
-          lastUpdated: Date.now()
-        });
-      } catch (error) {
-        console.error("Error updating module: ", error);
-      }
+      // Let error propagate to component for handling
+      const moduleRef = doc(db, 'modules', id);
+      await updateDoc(moduleRef, {
+        ...updatedData,
+        lastUpdated: Date.now()
+      });
     } else {
       const newModules = modules.map(m => 
         m.id === id ? { ...m, ...updatedData, lastUpdated: Date.now() } : m
@@ -123,6 +116,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         await deleteDoc(doc(db, 'modules', id));
       } catch (error) {
         console.error("Error deleting module: ", error);
+        alert("Failed to delete module.");
       }
     } else {
       const newModules = modules.filter(m => m.id !== id);

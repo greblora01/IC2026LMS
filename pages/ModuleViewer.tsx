@@ -184,6 +184,18 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
        </div>
     );
     if (media.type === 'video') {
+       if (media.url.includes('youtube') || media.url.includes('youtu.be')) {
+          return (
+             <iframe 
+               src={media.url} 
+               className={className} 
+               title={media.name || "Video content"}
+               frameBorder="0" 
+               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+               allowFullScreen
+             />
+          );
+       }
       return <video src={media.url} className={className} controls controlsList="nodownload" />;
     }
     return <img src={media.url} alt={media.name || 'Slide image'} className={className} />;
@@ -545,14 +557,10 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
           className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
             (currentSlideIndex >= maxIndex && module.quiz?.enabled)
               ? 'text-gray-300 cursor-not-allowed'
-              : 'bg-[var(--primary)] text-white hover:opacity-90 shadow-md'
+              : 'bg-[var(--primary)] text-white hover:opacity-90 shadow-lg'
           }`}
         >
-          <span className="hidden md:inline">
-            {/* Logic: If no quiz and on last slide, show Finish */}
-            {!module.quiz?.enabled && currentSlideIndex === totalSlides - 1 ? 'Finish' : 'Next'}
-          </span> 
-          <ArrowRight size={20} />
+          <span className="hidden md:inline">{currentSlideIndex === -1 ? 'Start Module' : 'Next'}</span> <ArrowRight size={20} />
         </button>
       </div>
     </div>

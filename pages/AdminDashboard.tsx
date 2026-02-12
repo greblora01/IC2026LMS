@@ -56,7 +56,7 @@ export const AdminDashboard: React.FC = () => {
       // Update timestamp
       moduleData.lastUpdated = Date.now();
       
-      addModule(moduleData);
+      await addModule(moduleData);
       alert('Module imported successfully!');
       setRemoteUrl(''); // Clear input
     } catch (error) {
@@ -69,7 +69,7 @@ export const AdminDashboard: React.FC = () => {
 
   // Helper to generate the student link
   const getStudentLink = (id: string) => {
-    return `${window.location.origin}${window.location.pathname}#/view/${id}`;
+    return `${window.location.origin}/view/${id}`;
   };
 
   return (
