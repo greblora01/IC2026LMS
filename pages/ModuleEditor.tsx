@@ -3,13 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Save, Upload, Plus, Trash, CheckCircle, Layout, 
   FileText, Settings, Play, Eye, AlignLeft, AlignRight, 
-  MonitorPlay, Image as ImageIcon, Maximize
+  MonitorPlay, Image as ImageIcon, Maximize, FileUp, Loader2
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { RichTextEditor } from '../components/RichTextEditor';
 import { Module, Question, AttachedFile, Slide, SlideLayout, SlideMedia } from '../types';
 import { ModuleViewer } from './ModuleViewer';
 import { ThemeCustomizer } from '../components/ThemeCustomizer';
+// @ts-ignore
+import * as pdfjsLib from 'pdfjs-dist';
 
 // Simple UUID generator fallback
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -24,6 +26,7 @@ export const ModuleEditor: React.FC = () => {
   const isEditMode = !!id;
   const [activeSection, setActiveSection] = useState<EditorSection>('general');
   const [showPreview, setShowPreview] = useState(false);
+  const [isProcessingPdf, setIsProcessingPdf] = useState(false);
   
   const [formData, setFormData] = useState<Partial<Module>>({
     title: '',
@@ -123,6 +126,63 @@ export const ModuleEditor: React.FC = () => {
       } catch (error) {
         console.error("Error reading thumbnail", error);
       }
+    }
+  };
+
+  // PDF Import Handler
+  const handleImportPdfSlides = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingPdf(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      
+      // Initialize PDF.js worker
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.mjs';
+      
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      const newSlides: Slide[] = [];
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        if (context) {
+          await page.render({ canvasContext: context, viewport }).promise;
+          const imgData = canvas.toDataURL('image/jpeg', 0.8);
+
+          newSlides.push({
+            id: generateId(),
+            title: `Slide ${(formData.slides?.length || 0) + i} (PDF)`,
+            content: '',
+            layout: 'full-media',
+            media: {
+              type: 'image',
+              url: imgData,
+              name: `Page ${i} of ${file.name}`
+            }
+          });
+        }
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        slides: [...(prev.slides || []), ...newSlides]
+      }));
+      
+      alert(`Successfully imported ${newSlides.length} pages as slides.`);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to import PDF. " + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsProcessingPdf(false);
+      e.target.value = ''; // Reset input
     }
   };
 
@@ -354,6 +414,22 @@ export const ModuleEditor: React.FC = () => {
             >
               <Plus size={12} /> Add Slide
             </button>
+            
+            <div className="relative w-full mt-2">
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={handleImportPdfSlides}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                disabled={isProcessingPdf}
+              />
+              <button
+                className={`w-full py-2 bg-gray-100 rounded-lg text-xs text-gray-700 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1 ${isProcessingPdf ? 'opacity-50' : ''}`}
+              >
+                {isProcessingPdf ? <Loader2 size={12} className="animate-spin" /> : <FileUp size={12} />}
+                {isProcessingPdf ? 'Importing...' : 'Import Slides from PDF'}
+              </button>
+            </div>
 
             <div className="mt-6 mb-2 px-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Assessment</div>
             <button

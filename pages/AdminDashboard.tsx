@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Copy, Eye, Image as ImageIcon, Download, Globe, ArrowRight, RefreshCw, Import } from 'lucide-react';
+import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Copy, Eye, Image as ImageIcon, Download, Globe, ArrowRight, RefreshCw, Import, Cloud, HardDrive, UploadCloud } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { ThemeCustomizer } from '../components/ThemeCustomizer';
 import { Module } from '../types';
 
 export const AdminDashboard: React.FC = () => {
-  const { modules, deleteModule, resetToDefaults, addModule } = useAppContext();
+  const { modules, deleteModule, resetToDefaults, addModule, isCloud } = useAppContext();
   const navigate = useNavigate();
   const [remoteUrl, setRemoteUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -78,14 +78,26 @@ export const AdminDashboard: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold mb-2">Admin Dashboard</h1>
           <p className="opacity-70">Manage your learning modules and track progress.</p>
+          <div className={`inline-flex items-center gap-2 mt-2 px-3 py-1 rounded-full text-xs font-bold ${isCloud ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+            {isCloud ? (
+              <>
+                <Cloud size={14} /> Connected to Cloud (Shared)
+              </>
+            ) : (
+              <>
+                <HardDrive size={14} /> Local Storage (Private)
+              </>
+            )}
+          </div>
         </div>
         <div className="flex gap-3">
            <button 
-            onClick={() => { if(confirm('This will reset all modules to the default set from code. Any created modules will be lost. Continue?')) resetToDefaults() }}
+            onClick={() => { if(confirm('This will replace all current modules with the default set from the code. Continue?')) resetToDefaults() }}
             className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg flex items-center gap-2 font-medium hover:bg-gray-300 transition-colors"
-            title="Reset to default modules (fix missing content)"
+            title="Reset/Initialize with Default Modules"
           >
             <RefreshCw size={20} />
+            <span className="hidden sm:inline">Reset Defaults</span>
           </button>
           <ThemeCustomizer />
           <Link
@@ -161,7 +173,24 @@ export const AdminDashboard: React.FC = () => {
           <div className="col-span-full text-center py-20 opacity-60">
             <BookOpen size={64} className="mx-auto mb-4 opacity-30" />
             <h3 className="text-xl font-medium">No modules yet</h3>
-            <p>Click "Create Module" to get started.</p>
+            <p className="mb-6">Your library is empty. You can create a new module or load the default examples.</p>
+            
+            <div className="flex gap-4 justify-center">
+              <button 
+                onClick={resetToDefaults}
+                className="bg-[var(--accent)] text-white px-6 py-3 rounded-lg font-bold hover:opacity-90 shadow-lg flex items-center gap-2 animate-bounce"
+              >
+                <UploadCloud size={20} />
+                Upload Default Courses {isCloud ? 'to Firebase' : 'to Local'}
+              </button>
+              <Link
+                to="/create"
+                className="bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-medium hover:bg-gray-50 flex items-center gap-2"
+              >
+                <Plus size={20} />
+                Create New
+              </Link>
+            </div>
           </div>
         ) : (
           modules.map((module) => (

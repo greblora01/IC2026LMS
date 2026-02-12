@@ -9,12 +9,13 @@ import { getFirestore, Firestore } from 'firebase/firestore';
 // 4. Copy the config object below
 // ------------------------------------------------------------------
 const firebaseConfig = {
-  // apiKey: "AIzaSy...",
-  // authDomain: "your-app.firebaseapp.com",
-  // projectId: "your-app",
-  // storageBucket: "your-app.appspot.com",
-  // messagingSenderId: "123456789",
-  // appId: "1:123456789:web:abc123456"
+  apiKey: "AIzaSyBDU3-B7J8Is0Q9ViONFNo4xfAFvnuUX1g",
+  authDomain: "lms-lite-67c30.firebaseapp.com",
+  projectId: "lms-lite-67c30",
+  storageBucket: "lms-lite-67c30.firebasestorage.app",
+  messagingSenderId: "462079436012",
+  appId: "1:462079436012:web:3c5284c1177b085d36b1c9",
+  measurementId: "G-CDNE96CNHB"
 };
 
 let db: Firestore | null = null;

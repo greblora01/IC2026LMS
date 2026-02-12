@@ -7,6 +7,7 @@ import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, increment, w
 interface AppContextType {
   modules: Module[];
   theme: Theme;
+  isCloud: boolean; // New property to track connection status
   updateTheme: (newTheme: Partial<Theme>) => void;
   addModule: (module: Module) => void;
   updateModule: (id: string, module: Partial<Module>) => void;
@@ -20,6 +21,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [modules, setModules] = useState<Module[]>([]);
+  const isCloud = !!db; // Check if Firebase is initialized
   
   // Theme state is kept in localStorage to avoid unnecessary DB reads/writes for user preference
   const [theme, setTheme] = useState<Theme>(() => {
@@ -175,6 +177,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     <AppContext.Provider value={{
       modules,
       theme,
+      isCloud,
       updateTheme,
       addModule,
       updateModule,
