@@ -1,18 +1,18 @@
 import { Theme, Module } from './types';
 
 export const DEFAULT_THEME: Theme = {
-  primary: '#4A90E2',
-  background: '#F5F7FA',
+  primary: '#f57f20',
+  background: '#F4F4F4',
   text: '#333333',
-  accent: '#4CAF50',
+  accent: '#1f497d',
   cardBg: '#FFFFFF',
 };
 
 export const DARK_THEME: Theme = {
-  primary: '#60A5FA',
+  primary: '#f57f20', // Kept branding consistent
   background: '#1F2937',
   text: '#F9FAFB',
-  accent: '#34D399',
+  accent: '#60A5FA',
   cardBg: '#374151',
 };
 
@@ -26,6 +26,83 @@ const createVideo = (url: string) => {
 };
 const createDownload = (url: string, text: string) => `<div class="mt-8 p-4 bg-gray-100 rounded-lg flex items-center justify-between border border-gray-200"><span class="font-medium text-gray-700">${text}</span><a href="${url}" download="${text.replace(/\s+/g, '_')}" class="px-4 py-2 bg-[var(--primary)] text-white rounded-lg text-sm font-bold hover:opacity-90 no-underline inline-block">Download Resource</a></div>`;
 const createScripture = (text: string, reference: string) => `<div class="bg-orange-50 p-6 rounded-xl border-l-4 border-orange-400 my-6 italic text-gray-700">"${text}"<div class="mt-2 font-bold text-orange-600 not-italic">—${reference}</div></div>`;
+
+// Template for new modules based on Volunteer Training Module 2 Layout
+export const NEW_MODULE_TEMPLATE_SLIDES = [
+  {
+    title: 'Module Title',
+    layout: 'text-only',
+    blocks: [
+      {
+        type: 'text',
+        width: 100,
+        content: `
+          <h2 class="text-2xl font-bold text-[var(--primary)] mb-2">Part 1</h2>
+          <h1 class="text-4xl font-bold mb-8">Module Title Here</h1>
+          <ul class="list-disc pl-5 mb-6 space-y-2 text-lg">
+            <li class="pl-1"><strong>Presented by:</strong> HC3-VM Trainers Team</li>
+            <li class="pl-1"><strong>Duration:</strong> 20–30 Minutes</li>
+            <li class="pl-1"><strong>Event:</strong> Volunteer Training 2026 IC</li>
+          </ul>
+        `
+      }
+    ]
+  },
+  {
+    title: 'Welcome & Introduction',
+    layout: 'text-only',
+    blocks: [
+      {
+        type: 'text',
+        width: 100,
+        content: `
+          <p class="mb-4 text-lg leading-relaxed">Welcome to this training module. Use this paragraph to introduce the topic with warmth and enthusiasm.</p>
+          <div class="bg-orange-50 p-6 rounded-xl border-l-4 border-orange-400 my-6 italic text-gray-700">
+            "Insert a key scripture or guiding principle here."
+            <div class="mt-2 font-bold text-orange-600 not-italic">—Reference</div>
+          </div>
+          <p class="text-sm text-gray-500 mt-4">Reference: Source Material Name</p>
+        `
+      }
+    ]
+  },
+  {
+    title: 'Learning Objectives',
+    layout: 'text-only',
+    blocks: [
+      {
+        type: 'text',
+        width: 100,
+        content: `
+          <p class="mb-4 text-lg leading-relaxed">By the end of this module, volunteers will be able to:</p>
+          <ul class="list-disc pl-5 mb-6 space-y-2 text-lg">
+            <li class="pl-1"><strong>Understand</strong> the core concepts of...</li>
+            <li class="pl-1"><strong>Apply</strong> proper conduct when...</li>
+            <li class="pl-1"><strong>Identify</strong> key situations that require...</li>
+          </ul>
+        `
+      }
+    ]
+  },
+  {
+    title: 'Key Instruction',
+    layout: 'text-only',
+    blocks: [
+      {
+        type: 'text',
+        width: 100,
+        content: `
+          <h3 class="text-2xl font-bold text-orange-500 mb-4">Subheading Title</h3>
+          <p class="mb-4 text-lg leading-relaxed">Detailed instruction or content goes here.</p>
+          <div class="bg-blue-50 p-6 rounded-xl border-l-4 border-[var(--primary)] my-8 shadow-sm">
+             <strong class="block text-[var(--primary)] text-lg mb-2 flex items-center gap-2">💡 Practical Tip</strong>
+             <div class="text-gray-700">Use this box to highlight practical application or specific tips for volunteers.</div>
+          </div>
+        `
+      }
+    ]
+  }
+];
 
 export const MOCK_MODULES: Module[] = [
   {

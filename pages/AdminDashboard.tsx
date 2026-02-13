@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Share2, Eye, Image as ImageIcon, Download, RefreshCw, Cloud, HardDrive, UploadCloud, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Share2, Eye, Image as ImageIcon, Download, Cloud, HardDrive, UploadCloud, X, RefreshCw } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
+import { Module } from '../types';
 
 export const AdminDashboard: React.FC = () => {
   const { modules, deleteModule, resetToDefaults, isCloud } = useAppContext();
@@ -19,7 +20,8 @@ export const AdminDashboard: React.FC = () => {
 
   // Helper to generate the student link
   const getStudentLink = (id: string) => {
-    return `${window.location.origin}/view/${id}`;
+    // Uses HashRouter format
+    return `${window.location.origin}/#/view/${id}`;
   };
 
   return (
@@ -84,6 +86,7 @@ export const AdminDashboard: React.FC = () => {
             <RefreshCw size={20} />
             <span className="hidden sm:inline">Reset Defaults</span>
           </button>
+          
           <Link
             to="/create"
             className="bg-[var(--primary)] text-white px-6 py-3 rounded-lg flex items-center gap-2 font-medium hover:opacity-90 transition-opacity shadow-sm"
@@ -165,7 +168,7 @@ export const AdminDashboard: React.FC = () => {
 
               <div className="p-5 flex-1">
                 <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-bold text-lg leading-tight line-clamp-2">{module.title}</h3>
+                  <h3 className="font-bold text-lg leading-tight line-clamp-2 text-[var(--primary)]">{module.title}</h3>
                 </div>
                 <p className="text-sm opacity-70 line-clamp-3 mb-4">{module.description}</p>
                 

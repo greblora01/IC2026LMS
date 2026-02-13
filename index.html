@@ -5,19 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LMS Lite</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+
     <style>
       /* Base styles to work with dynamic CSS variables */
       :root {
-        --primary: #4A90E2;
-        --bg-color: #F5F7FA;
+        --primary: #f57f20; /* Titles Color */
+        --bg-color: #F4F4F4; /* ~90% White (Off-White/Light Gray) */
         --text-color: #333333;
-        --accent: #4CAF50;
+        --accent: #1f497d; /* Accent Color */
         --card-bg: #FFFFFF;
       }
       body {
         background-color: var(--bg-color);
         color: var(--text-color);
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-family: 'Poppins', sans-serif;
         transition: background-color 0.3s, color 0.3s;
       }
       .theme-transition {

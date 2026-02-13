@@ -13,60 +13,23 @@ interface ModuleViewerProps {
   onExitPreview?: () => void;
 }
 
-// Canvas Reference Dimensions (must match editor)
-const CANVAS_WIDTH = 960;
-const CANVAS_HEIGHT = 540;
-
 const BlockRenderer: React.FC<{ block: SlideBlock }> = ({ block }) => {
-  // Use Container Query Units (cqw) for responsive scaling relative to the slide container
-  // 100cqw = container width.
-  // formula: (value / CANVAS_WIDTH) * 100
-  
-  const toCQW = (val: number) => (val / CANVAS_WIDTH) * 100;
-  
-  const style: React.CSSProperties = {
-     position: 'absolute',
-     left: `${toCQW(block.x)}cqw`,
-     top: `${(block.y / CANVAS_HEIGHT) * 100}%`, // Height in % relative to container height (which is locked to aspect ratio)
-     width: `${toCQW(block.width)}cqw`,
-     height: `${(block.height / CANVAS_HEIGHT) * 100}%`,
-     zIndex: block.style?.zIndex || 1,
-     backgroundColor: block.style?.backgroundColor,
-     borderRadius: block.style?.borderRadius ? `${toCQW(block.style.borderRadius)}cqw` : undefined,
-     overflow: 'hidden'
-  };
-
-  const contentStyle = {
-    fontSize: block.style?.fontSize ? `${toCQW(block.style.fontSize)}cqw` : undefined,
-    color: block.style?.color,
-    textAlign: block.style?.textAlign,
-    fontWeight: block.style?.fontWeight,
-    fontFamily: 'sans-serif',
-    width: '100%',
-    height: '100%',
-    lineHeight: '1.4'
-  };
-
   if (block.type === 'text') {
     return (
-      <div 
-        style={style}
-      >
-         <div 
-           style={contentStyle}
-           dangerouslySetInnerHTML={{ __html: block.content }} 
-         />
-      </div>
+      <article 
+        className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
+        dangerouslySetInnerHTML={{ __html: block.content }} 
+      />
     );
   }
   
   if (block.type === 'image') {
     return (
-      <div style={style}>
+      <div className="flex justify-center">
          <img 
             src={block.content} 
             alt="Slide content" 
-            className="w-full h-full object-cover" 
+            className="rounded-xl shadow-lg max-w-full h-auto max-h-[600px] object-contain" 
          />
       </div>
     );
@@ -74,11 +37,11 @@ const BlockRenderer: React.FC<{ block: SlideBlock }> = ({ block }) => {
 
   if (block.type === 'video') {
     return (
-      <div style={style}>
+      <div className="flex justify-center">
          <video 
            src={block.content} 
            controls 
-           className="w-full h-full object-cover" 
+           className="rounded-xl shadow-lg max-w-full h-auto max-h-[600px]" 
          />
       </div>
     );
@@ -86,7 +49,7 @@ const BlockRenderer: React.FC<{ block: SlideBlock }> = ({ block }) => {
 
   if (block.type === 'youtube') {
     return (
-      <div style={style} className="bg-black">
+      <div className="w-full aspect-video rounded-xl overflow-hidden shadow-lg border border-gray-100">
          <iframe 
            src={block.content} 
            className="w-full h-full" 
@@ -98,12 +61,15 @@ const BlockRenderer: React.FC<{ block: SlideBlock }> = ({ block }) => {
     );
   }
 
-  if (block.type === 'shape') {
-     return <div style={style} />;
-  }
-
   return null;
 };
+
+const ModuleFooter = () => (
+  <div className="mt-16 h-8 bg-[var(--primary)] text-white flex justify-between items-center px-4 text-xs font-bold uppercase tracking-wider rounded-sm shadow-sm print:hidden">
+      <span>VOLUNTEER TRAINING</span>
+      <span>2026 IC</span>
+  </div>
+);
 
 export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExitPreview }) => {
   const { id } = useParams<{ id: string }>();
@@ -289,6 +255,30 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     window.print();
   };
 
+  const renderLegacyMedia = (media: any, className = "w-full h-full object-cover rounded-xl shadow-md") => {
+    if (!media) return (
+       <div className="w-full h-64 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 border border-gray-200">
+          <ImageIcon size={48} className="opacity-20" />
+       </div>
+    );
+    if (media.type === 'video') {
+       if (media.url.includes('youtube') || media.url.includes('youtu.be')) {
+          return (
+             <iframe 
+               src={media.url} 
+               className={className} 
+               title={media.name || "Video content"}
+               frameBorder="0" 
+               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+               allowFullScreen
+             />
+          );
+       }
+      return <video src={media.url} className={className} controls controlsList="nodownload" />;
+    }
+    return <img src={media.url} alt={media.name || 'Slide image'} className={className} />;
+  };
+
   const SidebarItem = ({ 
     active, 
     completed, 
@@ -323,7 +313,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   if (showCertificate) {
     return (
       <div className="min-h-screen bg-[var(--bg-color)] flex flex-col items-center justify-center p-4">
-        {/* Certificate UI (unchanged from previous) */}
         <div className="print:hidden w-full max-w-4xl flex justify-between items-center mb-6">
           <button 
             onClick={() => setShowCertificate(false)} 
@@ -418,7 +407,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
           <div className="w-24 h-24 bg-[var(--primary)] rounded-2xl flex items-center justify-center text-white mb-8 shadow-xl">
              <FileText size={48} />
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-6 text-[var(--text-color)] max-w-3xl leading-tight">{module.title}</h1>
+          <h1 className="text-4xl md:text-5xl font-bold mb-6 text-[var(--primary)] max-w-3xl leading-tight">{module.title}</h1>
           <p className="text-xl text-gray-500 max-w-2xl mb-10 leading-relaxed">{module.description}</p>
           <button 
             onClick={handleNext}
@@ -439,7 +428,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     if (isQuizStep) {
       return (
         <div className="max-w-3xl mx-auto animate-in slide-in-from-right duration-300">
-           {/* Reusing existing quiz UI */}
            <div className="bg-[var(--card-bg)] rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-8">
             <div className="bg-[var(--primary)] text-white p-8">
               <h2 className="text-3xl font-bold">Knowledge Check</h2>
@@ -523,37 +511,81 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
     // 3. Slide Page Logic
     const slide = slides[currentSlideIndex];
-    if (!slide) return null;
+    if (!slide) return null; // Added safety check
 
-    // SCALABLE CANVAS RENDERER
-    // Use container-type: inline-size to allow blocks to scale perfectly
+    // -- Modern Block-Based Rendering --
     if (slide.blocks && slide.blocks.length > 0) {
       return (
-        <div className="w-full flex justify-center items-start pt-4 h-full">
-           <div 
-             className="relative w-full max-w-5xl aspect-video bg-white shadow-xl rounded-xl overflow-hidden border border-gray-100"
-             style={{ containerType: 'inline-size' } as React.CSSProperties} 
-           >
-              {slide.blocks.map(block => (
-                 <BlockRenderer key={block.id} block={block} />
-              ))}
+        <div className="max-w-5xl mx-auto min-h-[60vh] flex flex-col justify-between animate-in fade-in duration-300" key={slide.id}>
+           <div className="flex-1">
+               <div className="slide-blocks flex flex-wrap -mx-4 items-start">
+                  {slide.blocks.map(block => (
+                     <div key={block.id} style={{ width: `${block.width || 100}%` }} className="px-4 mb-6">
+                        <BlockRenderer block={block} />
+                     </div>
+                  ))}
+               </div>
            </div>
+           <ModuleFooter />
         </div>
       );
     }
-    
-    // Fallback for legacy text-only slides without blocks
-    return (
-        <div className="max-w-5xl mx-auto h-full animate-in fade-in duration-300" key={slide.id}>
-           <div className="mb-4">
-               <h2 className="text-3xl font-bold text-[var(--text-color)]">{slide.title}</h2>
+
+    // -- Legacy Layout Rendering --
+    const layout = slide.layout || 'text-only';
+    if (layout === 'text-only') {
+      return (
+        <div className="max-w-5xl mx-auto min-h-[60vh] flex flex-col justify-between animate-in fade-in duration-300" key={slide.id}>
+           <div className="flex-1">
+              <article 
+                className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
+                dangerouslySetInnerHTML={{ __html: slide.content }} 
+              />
            </div>
-          <article 
-            className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
-            dangerouslySetInnerHTML={{ __html: slide.content }} 
-          />
+           <ModuleFooter />
         </div>
-    );
+      );
+    }
+
+    if (layout === 'media-left' || layout === 'media-right') {
+      return (
+        <div className="max-w-5xl mx-auto min-h-[60vh] flex flex-col justify-between animate-in fade-in duration-300" key={slide.id}>
+           <div className="flex-1">
+              <div className="flex flex-col lg:flex-row gap-8 lg:gap-12 items-start">
+                 <div className={`w-full lg:w-1/2 ${layout === 'media-right' ? 'lg:order-2' : 'lg:order-1'}`}>
+                   {renderLegacyMedia(slide.media)}
+                 </div>
+                 <div className={`w-full lg:w-1/2 ${layout === 'media-right' ? 'lg:order-1' : 'lg:order-2'}`}>
+                    <article 
+                      className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
+                      dangerouslySetInnerHTML={{ __html: slide.content }} 
+                    />
+                 </div>
+              </div>
+           </div>
+           <ModuleFooter />
+        </div>
+      );
+    }
+
+    if (layout === 'full-media') {
+       return (
+        <div className="max-w-5xl mx-auto min-h-[60vh] flex flex-col justify-between animate-in fade-in duration-300" key={slide.id}>
+           <div className="flex-1">
+              <div className="space-y-6">
+                 <div className="w-full aspect-video bg-black rounded-xl overflow-hidden shadow-lg">
+                    {renderLegacyMedia(slide.media, "w-full h-full object-contain")}
+                 </div>
+                 <article 
+                    className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
+                    dangerouslySetInnerHTML={{ __html: slide.content }} 
+                  />
+              </div>
+           </div>
+           <ModuleFooter />
+        </div>
+       );
+    }
   };
 
   return (
@@ -647,7 +679,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
                   <SidebarItem
                     key={slide.id}
                     title={slide.title}
-                    icon={<FileText size={16} />}
+                    icon={slide.icon ? <div className="w-4 h-4 shrink-0" dangerouslySetInnerHTML={{__html: slide.icon}} /> : <FileText size={16} />}
                     active={currentSlideIndex === idx}
                     completed={maxVisitedSlideIndex > idx}
                     locked={idx > maxVisitedSlideIndex}

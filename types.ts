@@ -1,3 +1,4 @@
+
 export interface Theme {
   primary: string;
   background: string;
@@ -32,7 +33,7 @@ export interface ModuleStats {
   avgScore?: number;
 }
 
-export type SlideLayout = 'freeform' | 'text-only' | 'media-left' | 'media-right' | 'full-media';
+export type SlideLayout = 'text-only' | 'media-left' | 'media-right' | 'full-media';
 
 export interface SlideMedia {
   type: 'image' | 'video';
@@ -40,42 +41,24 @@ export interface SlideMedia {
   name?: string;
 }
 
-export type BlockType = 'text' | 'image' | 'video' | 'youtube' | 'shape';
-
-export interface BlockStyle {
-  color?: string;
-  backgroundColor?: string;
-  fontSize?: number;
-  fontFamily?: string;
-  textAlign?: 'left' | 'center' | 'right' | 'justify';
-  fontWeight?: 'normal' | 'bold';
-  zIndex?: number;
-  borderRadius?: number;
-  borderColor?: string;
-  borderWidth?: number;
-  opacity?: number;
-}
+export type BlockType = 'text' | 'image' | 'video' | 'youtube';
 
 export interface SlideBlock {
   id: string;
   type: BlockType;
-  content: string; 
-  // Position and Size (percentage based or fixed canvas units)
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  style?: BlockStyle;
+  content: string; // HTML for text, URL for media
+  width?: number; // percentage (e.g., 100, 50)
+  align?: 'left' | 'center' | 'right';
 }
 
 export interface Slide {
   id: string;
   title: string;
-  content: string; // Legacy
-  layout: SlideLayout;
-  media?: SlideMedia; // Legacy
-  blocks?: SlideBlock[]; 
-  background?: string; // Hex color or Image URL
+  content: string; // HTML string for this slide (Legacy)
+  layout: SlideLayout; // (Legacy)
+  media?: SlideMedia; // (Legacy)
+  blocks?: SlideBlock[]; // New block-based structure
+  icon?: string;
 }
 
 export interface Module {
