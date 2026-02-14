@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Module, Theme } from '../types';
 import { DEFAULT_THEME, MOCK_MODULES } from '../constants';
 import { db } from '../firebase';
@@ -25,37 +25,48 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isLoading, setIsLoading] = useState(true);
   const isCloud = !!db; 
   
-  // Theme state is kept in localStorage to avoid unnecessary DB reads/writes for user preference
   const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem('lms_theme');
-    return saved ? JSON.parse(saved) : DEFAULT_THEME;
+    try {
+      const saved = localStorage.getItem('lms_theme');
+      return saved ? JSON.parse(saved) : DEFAULT_THEME;
+    } catch (e) {
+      return DEFAULT_THEME;
+    }
   });
 
-  // Load Modules (Firebase or LocalStorage)
   useEffect(() => {
     setIsLoading(true);
     if (db) {
-      // Firebase Mode
-      try {
-        const unsubscribe = onSnapshot(collection(db, 'modules'), (snapshot) => {
-          const fetchedModules = snapshot.docs.map(doc => doc.data() as Module);
-          fetchedModules.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
-          setModules(fetchedModules);
-          setIsLoading(false);
-        }, (error) => {
-          console.error("Error connecting to Firebase:", error);
-          setIsLoading(false);
+      const unsubscribe = onSnapshot(collection(db, 'modules'), (snapshot) => {
+        const fetchedModules = snapshot.docs.map(doc => {
+          // Ensure we only store plain object data
+          const data = doc.data();
+          return { ...data } as Module;
         });
-        return () => unsubscribe();
-      } catch (err) {
-        console.error("Firebase connection failed", err);
+        fetchedModules.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
+        setModules(fetchedModules);
         setIsLoading(false);
-      }
+      }, (error) => {
+        console.error("Firebase connection error or timeout:", error);
+        // On error, try to load from local storage if available
+        const saved = localStorage.getItem('lms_modules');
+        if (saved) {
+           setModules(JSON.parse(saved));
+        } else {
+           // Fallback to mocks if nothing in local storage on error
+           setModules(MOCK_MODULES);
+        }
+        setIsLoading(false);
+      });
+      return () => unsubscribe();
     } else {
-      // LocalStorage Fallback
       const saved = localStorage.getItem('lms_modules');
       if (saved) {
-        setModules(JSON.parse(saved));
+        try {
+          setModules(JSON.parse(saved));
+        } catch (e) {
+          setModules(MOCK_MODULES);
+        }
       } else {
         setModules(MOCK_MODULES);
       }
@@ -63,13 +74,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, []);
 
-  // Helper to persist to LocalStorage (only used when db is null)
   const saveToLocalStorage = (newModules: Module[]) => {
     setModules(newModules);
     localStorage.setItem('lms_modules', JSON.stringify(newModules));
   };
 
-  // Persist theme to CSS vars
   useEffect(() => {
     localStorage.setItem('lms_theme', JSON.stringify(theme));
     const root = document.documentElement;
@@ -86,8 +95,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addModule = async (module: Module) => {
     if (db) {
-      // Let error propagate to component for handling
-      await setDoc(doc(db, 'modules', module.id), module);
+      await setDoc(doc(db, 'modules', module.id), { ...module });
     } else {
       const newModules = [module, ...modules];
       saveToLocalStorage(newModules);
@@ -96,7 +104,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const updateModule = async (id: string, updatedData: Partial<Module>) => {
     if (db) {
-      // Let error propagate to component for handling
       const moduleRef = doc(db, 'modules', id);
       await updateDoc(moduleRef, {
         ...updatedData,
@@ -115,8 +122,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       try {
         await deleteDoc(doc(db, 'modules', id));
       } catch (error) {
-        console.error("Error deleting module: ", error);
-        alert("Failed to delete module.");
+        console.error("Error deleting module:", error);
       }
     } else {
       const newModules = modules.filter(m => m.id !== id);
@@ -124,9 +130,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const getModule = (id: string) => {
+  const getModule = useCallback((id: string) => {
     return modules.find(m => m.id === id);
-  };
+  }, [modules]);
 
   const incrementModuleView = async (id: string) => {
     if (db) {
@@ -136,7 +142,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           'stats.views': increment(1)
         });
       } catch (error) {
-        console.error("Error updating stats: ", error);
+        console.error("Error updating views:", error);
       }
     } else {
       const newModules = modules.map(m => 
@@ -152,25 +158,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (db) {
       try {
         const batch = writeBatch(db);
-        // Delete existing
         modules.forEach(m => {
-          const ref = doc(db!, 'modules', m.id);
-          batch.delete(ref);
+          batch.delete(doc(db!, 'modules', m.id));
         });
-        // Add Defaults
         MOCK_MODULES.forEach(m => {
-          const ref = doc(db!, 'modules', m.id);
-          batch.set(ref, m);
+          batch.set(doc(db!, 'modules', m.id), { ...m });
         });
         await batch.commit();
-        alert("Database reset to default modules successfully.");
       } catch (error) {
-        console.error("Error resetting database: ", error);
-        alert("Failed to reset database.");
+        console.error("Error resetting DB:", error);
+        alert("Failed to reset database (check permissions/connection).");
       }
     } else {
       saveToLocalStorage(MOCK_MODULES);
-      alert("Local storage reset to default modules.");
     }
   };
 

@@ -1,5 +1,5 @@
 {
-  "name": "ic2026-lms",
+  "name": "lms-lite",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -15,7 +15,8 @@
     "uuid": "^13.0.0",
     "react-router-dom": "^7.13.0",
     "firebase": "^12.9.0",
-    "pdfjs-dist": "3.11.174"
+    "pdfjs-dist": "3.11.174",
+    "@google/genai": "^1.41.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

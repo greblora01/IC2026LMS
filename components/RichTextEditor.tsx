@@ -3,15 +3,17 @@ import {
   Bold, Italic, Underline, Strikethrough, 
   List, 
   AlignLeft, AlignCenter, AlignRight, AlignJustify, 
-  Type 
+  Type,
+  Baseline
 } from 'lucide-react';
 
 interface RichTextEditorProps {
   initialContent: string;
   onChange: (content: string) => void;
+  className?: string;
 }
 
-export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, onChange }) => {
+export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, onChange, className = "" }) => {
   const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,8 +40,8 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, 
   };
 
   return (
-    <div className="border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-[var(--primary)] transition-shadow bg-[var(--card-bg)]">
-      <div className="flex items-center gap-1 p-2 border-b border-gray-200 bg-gray-50 flex-wrap">
+    <div className={`border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-[var(--primary)] transition-shadow bg-[var(--card-bg)] flex flex-col h-full ${className}`}>
+      <div className="flex items-center gap-1 p-2 border-b border-gray-200 bg-gray-50 flex-wrap shrink-0">
         {/* Font Family Dropdown */}
         <select 
           onChange={(e) => {
@@ -69,6 +71,17 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, 
         
         <div className="w-px h-6 bg-gray-300 mx-1"></div>
         
+        <div className="relative flex items-center justify-center w-8 h-8 rounded hover:bg-gray-200 cursor-pointer" title="Text Color">
+           <Baseline size={16} className="text-gray-700 pointer-events-none" />
+           <input 
+             type="color" 
+             onChange={(e) => execCommand('foreColor', e.target.value)}
+             className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" 
+           />
+        </div>
+
+        <div className="w-px h-6 bg-gray-300 mx-1"></div>
+        
         <ToolButton onClick={() => execCommand('formatBlock', 'H3')} icon={<Type size={16} />} title="Heading" />
         <ToolButton onClick={() => execCommand('formatBlock', 'P')} icon={<span className="text-xs font-bold">P</span>} title="Paragraph" />
         
@@ -87,7 +100,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, 
         ref={editorRef}
         contentEditable
         onInput={handleInput}
-        className="p-4 min-h-[200px] outline-none prose max-w-none text-[var(--text-color)]"
+        className="p-4 outline-none prose max-w-none text-[var(--text-color)] flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
         style={{ color: 'var(--text-color)' }}
       />
     </div>

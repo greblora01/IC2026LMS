@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Share2, Eye, Image as ImageIcon, Download, Cloud, HardDrive, UploadCloud, X, RefreshCw } from 'lucide-react';
+import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Share2, Eye, Image as ImageIcon, Download, Cloud, HardDrive, UploadCloud, X, RefreshCw, Loader2 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { Module } from '../types';
 
 export const AdminDashboard: React.FC = () => {
-  const { modules, deleteModule, resetToDefaults, isCloud } = useAppContext();
+  const { modules, deleteModule, resetToDefaults, isCloud, isLoading } = useAppContext();
   const [shareModuleId, setShareModuleId] = useState<string | null>(null);
 
   const handleExport = (module: any) => {
@@ -23,6 +23,14 @@ export const AdminDashboard: React.FC = () => {
     // Uses HashRouter format
     return `${window.location.origin}/#/view/${id}`;
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[var(--bg-color)]">
+        <Loader2 className="animate-spin text-[var(--primary)]" size={48} />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -63,8 +71,8 @@ export const AdminDashboard: React.FC = () => {
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Admin Dashboard</h1>
-          <p className="opacity-70">Manage your learning modules and track progress.</p>
+          <h1 className="text-3xl font-bold mb-2 text-[var(--text-color)]">Admin Dashboard</h1>
+          <p className="opacity-70 text-[var(--text-color)]">Manage your learning modules and track progress.</p>
           <div className={`inline-flex items-center gap-2 mt-2 px-3 py-1 rounded-full text-xs font-bold ${isCloud ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
             {isCloud ? (
               <>
@@ -124,9 +132,9 @@ export const AdminDashboard: React.FC = () => {
 
         {modules.length === 0 ? (
           <div className="col-span-full text-center py-20 opacity-60">
-            <BookOpen size={64} className="mx-auto mb-4 opacity-30" />
-            <h3 className="text-xl font-medium">No modules yet</h3>
-            <p className="mb-6">Your library is empty. You can create a new module or load the default examples.</p>
+            <BookOpen size={64} className="mx-auto mb-4 opacity-30 text-[var(--text-color)]" />
+            <h3 className="text-xl font-medium text-[var(--text-color)]">No modules yet</h3>
+            <p className="mb-6 text-[var(--text-color)]">Your library is empty. You can create a new module or load the default examples.</p>
             
             <div className="flex gap-4 justify-center">
               <button 
@@ -170,9 +178,9 @@ export const AdminDashboard: React.FC = () => {
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="font-bold text-lg leading-tight line-clamp-2 text-[var(--primary)]">{module.title}</h3>
                 </div>
-                <p className="text-sm opacity-70 line-clamp-3 mb-4">{module.description}</p>
+                <p className="text-sm opacity-70 line-clamp-3 mb-4 text-[var(--text-color)]">{module.description}</p>
                 
-                <div className="flex gap-4 text-xs opacity-60 font-medium">
+                <div className="flex gap-4 text-xs opacity-60 font-medium text-[var(--text-color)]">
                   <span className="flex items-center gap-1">
                     <ExternalLink size={12} /> {module.stats.views} Views
                   </span>

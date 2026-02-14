@@ -1,79 +1,129 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  Download, FileText, PlayCircle, Image as ImageIcon, File, 
-  CheckCircle, XCircle, ArrowRight, ArrowLeft, X, Printer, 
-  Award, Loader, Lock, BookOpen, HelpCircle 
+  FileText, ArrowRight, ArrowLeft, X, Award, Loader2, Menu, List, CheckCircle2, Circle, Type, Minus, Plus, RefreshCw
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
-import { Module, SlideBlock } from '../types';
+import { Module, SlideBlock, Slide } from '../types';
 
 interface ModuleViewerProps {
   previewModule?: Module;
   onExitPreview?: () => void;
 }
 
-const BlockRenderer: React.FC<{ block: SlideBlock }> = ({ block }) => {
-  if (block.type === 'text') {
-    return (
-      <article 
-        className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
-        dangerouslySetInnerHTML={{ __html: block.content }} 
-      />
-    );
-  }
-  
-  if (block.type === 'image') {
-    return (
-      <div className="flex justify-center">
-         <img 
-            src={block.content} 
-            alt="Slide content" 
-            className="rounded-xl shadow-lg max-w-full h-auto max-h-[600px] object-contain" 
-         />
-      </div>
-    );
-  }
+// --- Components ---
 
-  if (block.type === 'video') {
-    return (
-      <div className="flex justify-center">
-         <video 
-           src={block.content} 
-           controls 
-           className="rounded-xl shadow-lg max-w-full h-auto max-h-[600px]" 
-         />
-      </div>
-    );
-  }
-
-  if (block.type === 'youtube') {
-    return (
-      <div className="w-full aspect-video rounded-xl overflow-hidden shadow-lg border border-gray-100">
-         <iframe 
-           src={block.content} 
-           className="w-full h-full" 
-           frameBorder="0" 
-           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-           allowFullScreen
-         />
-      </div>
-    );
-  }
-
-  return null;
-};
-
-const ModuleFooter = () => (
-  <div className="mt-16 h-8 bg-[var(--primary)] text-white flex justify-between items-center px-4 text-xs font-bold uppercase tracking-wider rounded-sm shadow-sm print:hidden">
-      <span>VOLUNTEER TRAINING</span>
-      <span>2026 IC</span>
+const SlideFooter: React.FC<{ leftText?: string; rightText?: string, className?: string }> = ({ leftText, rightText, className = "" }) => (
+  <div 
+    className={`bg-[var(--primary)] flex items-center justify-between px-8 py-3 select-none ${className}`}
+  >
+    <span className="text-white font-bold uppercase tracking-widest text-lg truncate mr-4">
+      {leftText || 'VOLUNTEER TRAINING'}
+    </span>
+    <span className="text-white font-bold uppercase tracking-widest text-lg truncate">
+      {rightText || '2026 IC'}
+    </span>
   </div>
 );
 
+// Desktop: Renders blocks exactly as positioned (Absolute) within a responsive coordinate system
+const DesktopCanvasRenderer: React.FC<{ block: SlideBlock; textScale: number }> = ({ block, textScale }) => {
+   const style: React.CSSProperties = {
+     left: `${block.x}%`,
+     top: `${block.y}%`,
+     width: `${block.width}%`,
+     height: `${block.height}%`,
+     zIndex: block.zIndex || 1,
+     transform: block.rotation ? `rotate(${block.rotation}deg)` : 'none',
+     backgroundColor: block.style?.backgroundColor,
+     borderRadius: block.style?.borderRadius ? `${block.style.borderRadius}px` : undefined,
+     opacity: block.style?.opacity,
+     boxShadow: block.style?.shadow ? '0 4px 6px -1px rgba(0, 0, 0, 0.1)' : 'none',
+     border: block.style?.borderWidth ? `${block.style.borderWidth}px solid ${block.style.borderColor || '#000'}` : 'none',
+   };
+
+   // We scale the text using viewport units or percentages. 
+   // vh units are good for keeping text relative to screen height in a responsive full-screen feel.
+   const contentStyle: React.CSSProperties = {
+       fontSize: `${textScale}em`, 
+       height: '100%',
+       width: '100%',
+   };
+
+   return (
+     <div 
+        className="absolute text-left overflow-hidden" 
+        style={style}
+     >
+        {block.type === 'text' && (
+           <div 
+            style={contentStyle} 
+            // Added overflow-y-auto and scrollbar hiding to allow reading without visual clutter if text overflows
+            className="prose max-w-none p-2 h-full w-full slide-typography overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" 
+            dangerouslySetInnerHTML={{ __html: block.content }} 
+           />
+        )}
+        {block.type === 'image' && (
+           <img src={block.content} alt="" className="w-full h-full object-cover" />
+        )}
+        {block.type === 'video' && (
+           <video src={block.content} controls className="w-full h-full object-cover" />
+        )}
+        {block.type === 'youtube' && (
+           <iframe src={block.content} className="w-full h-full border-0" allowFullScreen title="Video" />
+        )}
+        {block.type === 'shape' && (
+           <div className="w-full h-full"></div>
+        )}
+     </div>
+   );
+};
+
+// Mobile: Renders blocks in a vertical stack (Relative)
+const MobileStackRenderer: React.FC<{ block: SlideBlock; textScale: number }> = ({ block, textScale }) => {
+    const style: React.CSSProperties = {
+      backgroundColor: block.style?.backgroundColor,
+      borderRadius: block.style?.borderRadius ? `${block.style.borderRadius}px` : undefined,
+      opacity: block.style?.opacity,
+      boxShadow: block.style?.shadow ? '0 4px 6px -1px rgba(0, 0, 0, 0.1)' : 'none',
+      border: block.style?.borderWidth ? `${block.style.borderWidth}px solid ${block.style.borderColor || '#000'}` : 'none'
+    };
+
+    const textStyle: React.CSSProperties = {
+        zoom: textScale,
+        fontSize: '16px' // Adjusted to 16px base for better "one screen" fit by default
+    };
+ 
+    return (
+      <div className="w-full mb-6 last:mb-0 relative" style={style}>
+         {block.type === 'text' && (
+            <div 
+                // Removed overflow-hidden here to allow long text to scroll naturally with the page
+                className="w-full prose prose-sm max-w-none text-[var(--text-color)] slide-typography" 
+                style={textStyle}
+                dangerouslySetInnerHTML={{ __html: block.content }} 
+            />
+         )}
+         {block.type === 'image' && (
+            <img src={block.content} alt="" className="w-full h-auto rounded-lg shadow-sm" />
+         )}
+         {block.type === 'video' && (
+            <video src={block.content} controls className="w-full h-auto rounded-lg" />
+         )}
+         {block.type === 'youtube' && (
+            <div className="relative w-full aspect-video rounded-lg overflow-hidden">
+                <iframe src={block.content} className="absolute inset-0 w-full h-full border-0" allowFullScreen title="Video" />
+            </div>
+         )}
+         {block.type === 'shape' && (
+            <div className="w-full h-24 rounded-lg bg-gray-100"></div>
+         )}
+      </div>
+    );
+ };
+
 export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExitPreview }) => {
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { getModule, incrementModuleView, isLoading: contextLoading } = useAppContext();
   
@@ -81,673 +131,418 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const [loading, setLoading] = useState(!previewModule);
   const [error, setError] = useState<string | null>(null);
   
-  // Navigation State
   const [currentSlideIndex, setCurrentSlideIndex] = useState(-1); 
-  const [maxVisitedSlideIndex, setMaxVisitedSlideIndex] = useState(-1);
-  const [showResources, setShowResources] = useState(false);
-
-  // Quiz State
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [answers, setAnswers] = useState<number[]>([]);
   const [score, setScore] = useState(0);
-
-  // Certificate State
   const [showCertificate, setShowCertificate] = useState(false);
   const [userName, setUserName] = useState('');
-  const [certificateDate, setCertificateDate] = useState('');
+  
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Default open on desktop
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024); // Breakpoint for Sidebar
+  
+  // Font Size Scaling State - Default adjusted to 0.8 (80%) per request
+  const [textScale, setTextScale] = useState(0.8);
 
-  // Track progress
+  // Handle Resize for Responsive Logic
   useEffect(() => {
-    setMaxVisitedSlideIndex(prev => Math.max(prev, currentSlideIndex));
-  }, [currentSlideIndex]);
+    const handleResize = () => {
+        const mobile = window.innerWidth < 1024;
+        setIsMobile(mobile);
+        if (mobile) setIsSidebarOpen(false);
+        else setIsSidebarOpen(true);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Init
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
+  // Load Module Data
   useEffect(() => {
-    // 1. Preview Mode (from Editor)
     if (previewModule) {
       setModule(previewModule);
       setLoading(false);
       setAnswers(new Array(previewModule.quiz?.questions.length || 0).fill(-1));
-      setCurrentSlideIndex(-1);
-      setMaxVisitedSlideIndex(-1);
       return;
     }
 
-    // 2. External URL Mode
-    if (id === 'external') {
-      const url = searchParams.get('url');
-      if (!url) {
-        setError("No URL provided for external module.");
-        setLoading(false);
-        return;
-      }
-      
-      setLoading(true);
-      fetch(url)
-        .then(res => {
-          if (!res.ok) throw new Error("Failed to fetch module");
-          return res.json();
-        })
-        .then((data: Module) => {
-          setModule(data);
-          setAnswers(new Array(data.quiz?.questions.length || 0).fill(-1));
-          setCurrentSlideIndex(-1);
-          setMaxVisitedSlideIndex(-1);
-          setLoading(false);
-        })
-        .catch(err => {
-          console.error(err);
-          setError("Failed to load module from URL. Ensure it is a valid JSON file and accessible (CORS).");
-          setLoading(false);
-        });
-      return;
-    }
-
-    // 3. Database/Local Mode
-    if (id) {
-      if (contextLoading) return; // Wait for Firebase to sync
-
-      const foundModule = getModule(id);
-      setModule(foundModule);
-      if (foundModule) {
-        setError(null);
-        if (!sessionStorage.getItem(`viewed_${id}`)) {
-          incrementModuleView(id);
-          sessionStorage.setItem(`viewed_${id}`, 'true');
+    if (!id) {
+        if (!loading) {
+            setError("No module specified.");
+            setLoading(false);
         }
-        setAnswers(new Array(foundModule.quiz?.questions.length || 0).fill(-1));
-        setCurrentSlideIndex(-1);
-        setMaxVisitedSlideIndex(-1);
+        return;
+    }
+
+    if (!contextLoading) {
+      const foundModule = getModule(id);
+      if(foundModule) {
+         setModule(foundModule);
+         if (!sessionStorage.getItem(`viewed_${id}`)) {
+            incrementModuleView(id);
+            sessionStorage.setItem(`viewed_${id}`, 'true');
+         }
+         setAnswers(new Array(foundModule.quiz?.questions.length || 0).fill(-1));
+         setError(null);
       } else {
-        setError("Module not found. It may have been deleted or the link is incorrect.");
+         setError("Module not found. It may have been deleted.");
       }
       setLoading(false);
     }
-  }, [id, getModule, incrementModuleView, previewModule, searchParams, contextLoading]);
+  }, [id, getModule, previewModule, contextLoading, incrementModuleView, loading]);
 
-  // Loading State (Handles both internal fetch and context sync)
-  if (loading || (id && id !== 'external' && contextLoading && !module)) return (
-    <div className="h-screen flex flex-col items-center justify-center text-gray-500 gap-4">
-      <Loader className="animate-spin" size={32} />
-      <p>Loading module content...</p>
-    </div>
-  );
-
+  if (loading) return <div className="h-screen flex items-center justify-center bg-[var(--bg-color)]"><Loader2 className="animate-spin text-[var(--primary)]" size={48} /></div>;
+  
   if (error || !module) return (
-    <div className="p-10 text-center flex flex-col items-center justify-center min-h-[50vh]">
-      <div className="bg-red-50 text-red-500 p-6 rounded-xl border border-red-100 max-w-md">
-        <XCircle size={48} className="mx-auto mb-4" />
-        <h3 className="text-xl font-bold mb-2">Error Loading Module</h3>
-        <p>{error || "Module not found."}</p>
-        <button 
-          onClick={() => navigate('/')} 
-          className="mt-6 bg-red-500 text-white px-6 py-2 rounded-lg font-medium hover:bg-red-600 transition-colors"
-        >
-          Return Home
-        </button>
-      </div>
+    <div className="h-screen flex flex-col items-center justify-center p-10 text-center bg-gray-50">
+        <div className="text-red-500 mb-4"><X size={48} /></div>
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">Error Loading Module</h2>
+        <p className="text-gray-600 mb-6">{error || "Unknown error occurred."}</p>
+        <button onClick={() => navigate('/')} className="bg-gray-800 text-white px-6 py-2 rounded-lg">Return to Dashboard</button>
     </div>
   );
 
   const slides = module.slides || [];
   const totalSlides = slides.length;
-  // Index -1: Intro, 0 to N-1: Slides, N: Quiz (if enabled)
-  const maxIndex = module.quiz?.enabled && module.quiz.questions.length > 0 ? totalSlides : totalSlides - 1;
+  const maxIndex = module.quiz?.enabled ? totalSlides : totalSlides - 1;
   const isQuizStep = currentSlideIndex === totalSlides;
 
+  // --- Sorting Logic for Mobile Stack ---
+  const getSortedBlocks = (slide: Slide) => {
+    if (!slide.blocks) return [];
+    return [...slide.blocks].sort((a, b) => {
+        const yDiff = (a.y || 0) - (b.y || 0);
+        if (Math.abs(yDiff) > 5) return yDiff;
+        return (a.x || 0) - (b.x || 0);
+    });
+  };
+
   const handleNext = () => {
-    // If we are at the last slide and there is no quiz, clicking next should go to completion/certificate
-    if (currentSlideIndex === totalSlides - 1 && (!module.quiz?.enabled || module.quiz.questions.length === 0)) {
+    if (currentSlideIndex === totalSlides - 1 && !module.quiz?.enabled) {
        setShowCertificate(true);
-       setCertificateDate(new Date().toLocaleDateString());
-       return;
-    }
-
-    if (currentSlideIndex < maxIndex) {
+    } else if (currentSlideIndex < maxIndex) {
       setCurrentSlideIndex(prev => prev + 1);
-      window.scrollTo(0, 0); // Scroll main content to top
-      const mainContent = document.getElementById('main-content');
-      if (mainContent) mainContent.scrollTop = 0;
+      // Only auto-close on mobile
+      if (isMobile) setIsSidebarOpen(false);
     }
-  };
-
-  const handlePrev = () => {
-    if (currentSlideIndex > -1) {
-      setCurrentSlideIndex(prev => prev - 1);
-      const mainContent = document.getElementById('main-content');
-      if (mainContent) mainContent.scrollTop = 0;
-    }
-  };
-
-  const getFileIcon = (type: string) => {
-    switch (type) {
-      case 'pdf': return <FileText size={24} className="text-red-500" />;
-      case 'video': return <PlayCircle size={24} className="text-blue-500" />;
-      case 'image': return <ImageIcon size={24} className="text-purple-500" />;
-      default: return <File size={24} className="text-gray-500" />;
-    }
-  };
-
-  const handleOptionSelect = (qIndex: number, oIndex: number) => {
-    if (quizSubmitted) return;
-    const newAnswers = [...answers];
-    newAnswers[qIndex] = oIndex;
-    setAnswers(newAnswers);
   };
 
   const submitQuiz = () => {
-    if (answers.includes(-1)) {
-      if(!confirm("You haven't answered all questions. Submit anyway?")) return;
-    }
-    let correctCount = 0;
-    module.quiz.questions.forEach((q, idx) => {
-      if (answers[idx] === q.correctOptionIndex) correctCount++;
-    });
-    setScore(Math.round((correctCount / module.quiz.questions.length) * 100));
+    let correct = 0;
+    module.quiz.questions.forEach((q, i) => { if (answers[i] === q.correctOptionIndex) correct++; });
+    setScore(Math.round((correct / module.quiz.questions.length) * 100));
     setQuizSubmitted(true);
   };
 
-  const openCertificate = () => {
-    setCertificateDate(new Date().toLocaleDateString());
-    setShowCertificate(true);
+  const jumpToSlide = (index: number) => {
+      setCurrentSlideIndex(index);
+      setShowCertificate(false);
+      if (isMobile) setIsSidebarOpen(false);
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  // --- Renderers ---
 
-  const renderLegacyMedia = (media: any, className = "w-full h-full object-cover rounded-xl shadow-md") => {
-    if (!media) return (
-       <div className="w-full h-64 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 border border-gray-200">
-          <ImageIcon size={48} className="opacity-20" />
-       </div>
-    );
-    if (media.type === 'video') {
-       if (media.url.includes('youtube') || media.url.includes('youtu.be')) {
-          return (
-             <iframe 
-               src={media.url} 
-               className={className} 
-               title={media.name || "Video content"}
-               frameBorder="0" 
-               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-               allowFullScreen
-             />
-          );
-       }
-      return <video src={media.url} className={className} controls controlsList="nodownload" />;
-    }
-    return <img src={media.url} alt={media.name || 'Slide image'} className={className} />;
-  };
+  const renderSidebar = () => {
+    const sidebarClasses = isMobile 
+        ? `fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 ease-in-out shadow-2xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
+        : `w-[20%] min-w-[250px] border-r border-gray-200 bg-white flex flex-col transition-all duration-300 ${isSidebarOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0 w-0 min-w-0 overflow-hidden'}`;
 
-  const SidebarItem = ({ 
-    active, 
-    completed, 
-    locked, 
-    onClick, 
-    title, 
-    icon 
-  }: any) => (
-    <button
-      onClick={onClick}
-      disabled={locked}
-      className={`w-full text-left px-4 py-3 text-sm font-medium border-l-4 transition-all flex items-center justify-between group ${
-        active 
-          ? 'border-[var(--primary)] bg-blue-50 text-[var(--primary)]' 
-          : completed
-            ? 'border-green-400 bg-white text-gray-700 hover:bg-gray-50'
-            : 'border-transparent text-gray-400 cursor-not-allowed'
-      }`}
-    >
-      <div className="flex items-center gap-3 truncate pr-2">
-        {icon}
-        <span className="truncate">{title}</span>
-      </div>
-      {locked ? (
-        <Lock size={14} className="opacity-30 shrink-0" />
-      ) : completed && !active ? (
-        <CheckCircle size={14} className="text-green-500 shrink-0" />
-      ) : null}
-    </button>
-  );
-
-  if (showCertificate) {
     return (
-      <div className="min-h-screen bg-[var(--bg-color)] flex flex-col items-center justify-center p-4">
-        <div className="print:hidden w-full max-w-4xl flex justify-between items-center mb-6">
-          <button 
-            onClick={() => setShowCertificate(false)} 
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
-          >
-            <ArrowLeft size={20} /> Back to Module
-          </button>
-          {userName && (
-             <button 
-              onClick={handlePrint}
-              className="bg-[var(--primary)] text-white px-6 py-2 rounded-lg flex items-center gap-2 hover:opacity-90 shadow-sm"
-             >
-               <Printer size={20} /> Print Certificate
-             </button>
-          )}
-        </div>
-
-        {!userName ? (
-          <div className="bg-[var(--card-bg)] p-8 rounded-xl shadow-lg border border-gray-200 max-w-md w-full text-center animate-in fade-in zoom-in-95">
-             <Award size={64} className="mx-auto mb-4 text-[var(--accent)]" />
-             <h2 className="text-2xl font-bold mb-2">Module Completed!</h2>
-             <p className="text-gray-500 mb-6">Enter your name to generate your certificate of completion.</p>
-             <input
-               type="text"
-               placeholder="Your Full Name"
-               className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-[var(--primary)] outline-none"
-               autoFocus
-               onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.target as HTMLInputElement).value) {
-                    setUserName((e.target as HTMLInputElement).value);
-                  }
-               }}
-             />
-             <button
-               onClick={(e) => {
-                  const input = (e.currentTarget.previousElementSibling as HTMLInputElement).value;
-                  if (input) setUserName(input);
-               }}
-               className="w-full bg-[var(--primary)] text-white py-3 rounded-lg font-bold hover:opacity-90"
-             >
-               Generate Certificate
-             </button>
-          </div>
-        ) : (
-          <div className="bg-white p-12 rounded-xl shadow-2xl border-8 border-double border-gray-200 max-w-4xl w-full text-center relative print:shadow-none print:border-4 print:w-full print:h-screen print:max-w-none print:rounded-none">
-             <div className="absolute top-0 left-0 w-full h-full border-[20px] border-[var(--primary)] opacity-5 pointer-events-none"></div>
-             
-             <div className="mb-12">
-               <div className="text-6xl font-serif text-[var(--primary)] font-bold mb-4 tracking-wider">Certificate</div>
-               <div className="text-xl uppercase tracking-[0.2em] text-gray-400">Of Completion</div>
-             </div>
-
-             <div className="mb-12">
-               <p className="text-gray-500 italic mb-4 text-lg">This is to certify that</p>
-               <h1 className="text-5xl font-serif font-bold text-gray-800 mb-2 border-b-2 border-gray-300 inline-block pb-4 px-12 min-w-[300px] capitalize">
-                 {userName}
-               </h1>
-             </div>
-
-             <div className="mb-16">
-               <p className="text-gray-500 italic mb-4 text-lg">Has successfully completed the module</p>
-               <h2 className="text-3xl font-bold text-[var(--primary)] mb-2">{module?.certificateTitle || module?.title}</h2>
-               {module?.certificateMessage && <p className="text-gray-600 max-w-xl mx-auto italic">"{module.certificateMessage}"</p>}
-               {quizSubmitted && module?.quiz?.enabled && <p className="text-gray-500 mt-4">Score: <span className="font-bold text-gray-800">{score}%</span></p>}
-             </div>
-
-             <div className="flex justify-between items-end px-12 mt-auto">
-               <div className="text-left">
-                  <div className="w-48 border-b border-gray-400 mb-2"></div>
-                  <p className="text-sm text-gray-400 uppercase tracking-wider font-bold">Date</p>
-                  <p className="text-lg font-medium">{certificateDate}</p>
-               </div>
-               <div className="text-right">
-                 <div className="w-48 border-b border-gray-400 mb-2 flex justify-center pb-2">
-                    <Award size={40} className="text-[var(--accent)] opacity-80" />
-                 </div>
-                 <p className="text-sm text-gray-400 uppercase tracking-wider font-bold">LMS Lite Certified</p>
-               </div>
-             </div>
-          </div>
+    <>
+        {/* Backdrop for mobile */}
+        {isSidebarOpen && isMobile && (
+            <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setIsSidebarOpen(false)} />
         )}
-      </div>
-    );
-  }
-
-  // Render Content Logic
-  const renderContent = () => {
-    // 1. Cover Page
-    if (currentSlideIndex === -1) {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center animate-in fade-in duration-500">
-          <div className="w-24 h-24 bg-[var(--primary)] rounded-2xl flex items-center justify-center text-white mb-8 shadow-xl">
-             <FileText size={48} />
-          </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-6 text-[var(--primary)] max-w-3xl leading-tight">{module.title}</h1>
-          <p className="text-xl text-gray-500 max-w-2xl mb-10 leading-relaxed">{module.description}</p>
-          <button 
-            onClick={handleNext}
-            className="group bg-[var(--primary)] text-white px-8 py-4 rounded-full font-bold text-lg hover:opacity-90 shadow-lg transition-all flex items-center gap-2"
-          >
-            Start Module <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-          </button>
-          
-          <div className="mt-12 flex gap-8 text-sm text-gray-400 font-medium">
-             <span>{totalSlides} Slides</span>
-             {module.quiz?.enabled && <span>• Quiz Included</span>}
-          </div>
-        </div>
-      );
-    }
-
-    // 2. Quiz Page
-    if (isQuizStep) {
-      return (
-        <div className="max-w-3xl mx-auto animate-in slide-in-from-right duration-300">
-           <div className="bg-[var(--card-bg)] rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-8">
-            <div className="bg-[var(--primary)] text-white p-8">
-              <h2 className="text-3xl font-bold">Knowledge Check</h2>
-              <p className="opacity-90 mt-2 text-lg">
-                 {quizSubmitted ? `You scored ${score}%` : `Answer ${module.quiz.questions.length} questions to complete this module.`}
-              </p>
+        
+        <aside className={`${sidebarClasses} bg-white h-[calc(100vh-64px)] overflow-hidden flex flex-col shrink-0`}>
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
+                <h3 className="font-bold text-gray-700 flex items-center gap-2 truncate"><List size={18} /> Course Content</h3>
+                {isMobile && <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-gray-200 rounded text-gray-500"><X size={20} /></button>}
             </div>
+            
+            {/* Font Control removed from Sidebar as requested */}
 
-            <div className="p-8 space-y-10">
-                {module.quiz.questions.map((q, qIndex) => (
-                  <div key={q.id}>
-                    <h3 className="font-bold text-lg mb-4 flex gap-3">
-                      <span className="bg-gray-100 text-gray-500 w-8 h-8 flex items-center justify-center rounded-full text-sm shrink-0">{qIndex + 1}</span> 
-                      <span className="pt-1">{q.text}</span>
-                    </h3>
-                    <div className="space-y-3 pl-11">
-                      {q.options.map((opt, oIndex) => {
-                        let optionClass = "border-gray-200 hover:bg-gray-50";
-                        let icon = null;
-
-                        if (quizSubmitted) {
-                          if (oIndex === q.correctOptionIndex) {
-                            optionClass = "border-green-500 bg-green-50 text-green-700";
-                            icon = <CheckCircle size={18} />;
-                          } else if (answers[qIndex] === oIndex) {
-                            optionClass = "border-red-500 bg-red-50 text-red-700";
-                            icon = <XCircle size={18} />;
-                          } else {
-                            optionClass = "border-gray-100 opacity-50";
-                          }
-                        } else if (answers[qIndex] === oIndex) {
-                          optionClass = "border-[var(--primary)] bg-blue-50 text-[var(--primary)] ring-1 ring-[var(--primary)]";
-                        }
-
-                        return (
-                          <button
-                            key={oIndex}
-                            onClick={() => handleOptionSelect(qIndex, oIndex)}
-                            disabled={quizSubmitted}
-                            className={`w-full text-left p-4 rounded-lg border-2 flex items-center justify-between transition-all ${optionClass}`}
-                          >
-                            <span>{opt}</span>
-                            {icon}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                <button 
+                    onClick={() => jumpToSlide(-1)}
+                    className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${currentSlideIndex === -1 ? 'bg-[var(--primary)] text-white' : 'hover:bg-gray-100 text-gray-700'}`}
+                >
+                   <div className={`w-2 h-2 rounded-full ${currentSlideIndex === -1 ? 'bg-white' : 'bg-gray-300'}`} />
+                   <span className="text-sm font-medium">Introduction</span>
+                </button>
+                
+                {slides.map((slide, idx) => (
+                    <button 
+                        key={slide.id}
+                        onClick={() => jumpToSlide(idx)}
+                        className={`w-full text-left px-4 py-3 rounded-lg flex items-start gap-3 transition-colors ${currentSlideIndex === idx ? 'bg-[var(--primary)] text-white shadow-md' : 'hover:bg-gray-100 text-gray-700'}`}
+                    >
+                        {currentSlideIndex > idx ? (
+                             <CheckCircle2 size={16} className="mt-0.5 text-green-500 shrink-0" />
+                        ) : (
+                             <Circle size={16} className={`mt-0.5 shrink-0 ${currentSlideIndex === idx ? 'text-white' : 'text-gray-300'}`} />
+                        )}
+                        <span className="text-sm font-medium leading-tight">{slide.title || `Slide ${idx + 1}`}</span>
+                    </button>
                 ))}
 
-                {!quizSubmitted ? (
-                  <div className="pt-8 border-t border-gray-100 flex justify-end">
-                    <button
-                      onClick={submitQuiz}
-                      className="bg-[var(--accent)] text-white px-8 py-3 rounded-lg font-bold hover:opacity-90 transition-opacity shadow-md"
+                {module.quiz?.enabled && (
+                    <button 
+                        onClick={() => jumpToSlide(totalSlides)}
+                        className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${currentSlideIndex === totalSlides ? 'bg-[var(--primary)] text-white' : 'hover:bg-gray-100 text-gray-700'}`}
                     >
-                      Submit Answers
+                         <Award size={16} className={`${currentSlideIndex === totalSlides ? 'text-white' : 'text-gray-400'}`} />
+                         <span className="text-sm font-medium">Knowledge Check</span>
                     </button>
-                  </div>
-                ) : (
-                   <div className="pt-8 border-t border-gray-100 text-center flex flex-col items-center">
-                     <p className="text-gray-500 mb-4">Great job completing the quiz!</p>
-                     <div className="flex gap-4">
-                       <button onClick={() => window.location.reload()} className="text-[var(--primary)] font-medium hover:underline px-4 py-2">
-                         Restart Module
-                       </button>
-                       <button 
-                         onClick={openCertificate}
-                         className="bg-[var(--primary)] text-white px-6 py-2 rounded-lg font-bold hover:opacity-90 shadow-md flex items-center gap-2"
-                       >
-                         <Award size={18} /> Get Certificate
-                       </button>
-                     </div>
-                   </div>
                 )}
-              </div>
-          </div>
-        </div>
-      );
-    }
-
-    // 3. Slide Page Logic
-    const slide = slides[currentSlideIndex];
-    if (!slide) return null; // Added safety check
-
-    // -- Modern Block-Based Rendering --
-    if (slide.blocks && slide.blocks.length > 0) {
-      return (
-        <div className="max-w-5xl mx-auto min-h-[60vh] flex flex-col justify-between animate-in fade-in duration-300" key={slide.id}>
-           <div className="flex-1">
-               <div className="slide-blocks flex flex-wrap -mx-4 items-start">
-                  {slide.blocks.map(block => (
-                     <div key={block.id} style={{ width: `${block.width || 100}%` }} className="px-4 mb-6">
-                        <BlockRenderer block={block} />
-                     </div>
-                  ))}
-               </div>
-           </div>
-           <ModuleFooter />
-        </div>
-      );
-    }
-
-    // -- Legacy Layout Rendering --
-    const layout = slide.layout || 'text-only';
-    if (layout === 'text-only') {
-      return (
-        <div className="max-w-5xl mx-auto min-h-[60vh] flex flex-col justify-between animate-in fade-in duration-300" key={slide.id}>
-           <div className="flex-1">
-              <article 
-                className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
-                dangerouslySetInnerHTML={{ __html: slide.content }} 
-              />
-           </div>
-           <ModuleFooter />
-        </div>
-      );
-    }
-
-    if (layout === 'media-left' || layout === 'media-right') {
-      return (
-        <div className="max-w-5xl mx-auto min-h-[60vh] flex flex-col justify-between animate-in fade-in duration-300" key={slide.id}>
-           <div className="flex-1">
-              <div className="flex flex-col lg:flex-row gap-8 lg:gap-12 items-start">
-                 <div className={`w-full lg:w-1/2 ${layout === 'media-right' ? 'lg:order-2' : 'lg:order-1'}`}>
-                   {renderLegacyMedia(slide.media)}
-                 </div>
-                 <div className={`w-full lg:w-1/2 ${layout === 'media-right' ? 'lg:order-1' : 'lg:order-2'}`}>
-                    <article 
-                      className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
-                      dangerouslySetInnerHTML={{ __html: slide.content }} 
+            </div>
+            {/* Progress Bar in Sidebar */}
+            <div className="p-4 border-t border-gray-100 bg-gray-50 shrink-0">
+                <div className="text-xs text-gray-500 mb-1 flex justify-between">
+                    <span>Progress</span>
+                    <span>{Math.round(((currentSlideIndex + 1) / (maxIndex + 1)) * 100)}%</span>
+                </div>
+                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                        className="h-full bg-[var(--primary)] transition-all duration-500" 
+                        style={{ width: `${((currentSlideIndex + 1) / (maxIndex + 1)) * 100}%` }}
                     />
-                 </div>
-              </div>
-           </div>
-           <ModuleFooter />
+                </div>
+            </div>
+        </aside>
+    </>
+  )};
+
+  const renderContent = () => {
+    // --- Certificate View ---
+    if (showCertificate) return (
+       <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-white rounded-xl shadow-sm border border-gray-200 m-4 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <Award size={64} className="text-[var(--primary)] mb-4" />
+          <h1 className="text-3xl md:text-4xl font-bold mb-2 text-[var(--text-color)]">Certificate of Completion</h1>
+          <p className="text-gray-500 mb-8">Awarded to {userName || '[Your Name]'}</p>
+          <div className="w-full max-w-md space-y-4">
+             {!userName && <input type="text" placeholder="Enter Name for Certificate" className="w-full p-3 border rounded text-gray-700 outline-none focus:border-[var(--primary)]" onBlur={e => setUserName(e.target.value)} />}
+             <button onClick={() => window.print()} className="bg-[var(--primary)] text-white px-6 py-3 rounded-lg font-bold hover:opacity-90 w-full shadow-md">Print Certificate</button>
+             <button onClick={() => { setShowCertificate(false); setCurrentSlideIndex(-1); }} className="text-gray-400 underline text-sm hover:text-gray-600">Back to Introduction</button>
+          </div>
+       </div>
+    );
+
+    // --- Introduction View ---
+    if (currentSlideIndex === -1) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-center p-6 md:p-12 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="w-20 h-20 md:w-24 md:h-24 bg-[var(--primary)] rounded-2xl flex items-center justify-center text-white mb-6 md:mb-8 shadow-xl shrink-0">
+             <FileText size={40} className="md:w-12 md:h-12" />
+          </div>
+          <h1 className="text-3xl md:text-5xl font-bold mb-4 md:mb-6 text-[var(--primary)] leading-tight">{module.title}</h1>
+          <p className="text-lg md:text-xl text-gray-500 mb-8 md:mb-10 max-w-2xl leading-relaxed">{module.description}</p>
+          <button onClick={handleNext} className="bg-[var(--primary)] text-white px-8 py-4 rounded-full font-bold text-lg hover:opacity-90 shadow-lg flex items-center gap-2 transition-transform hover:scale-105">
+            Start Module <ArrowRight />
+          </button>
         </div>
       );
     }
 
-    if (layout === 'full-media') {
+    // --- Quiz View ---
+    if (isQuizStep) {
        return (
-        <div className="max-w-5xl mx-auto min-h-[60vh] flex flex-col justify-between animate-in fade-in duration-300" key={slide.id}>
-           <div className="flex-1">
-              <div className="space-y-6">
-                 <div className="w-full aspect-video bg-black rounded-xl overflow-hidden shadow-lg">
-                    {renderLegacyMedia(slide.media, "w-full h-full object-contain")}
-                 </div>
-                 <article 
-                    className="prose prose-lg max-w-none prose-headings:text-[var(--text-color)] prose-p:text-[var(--text-color)] prose-strong:text-[var(--text-color)]"
-                    dangerouslySetInnerHTML={{ __html: slide.content }} 
-                  />
-              </div>
-           </div>
-           <ModuleFooter />
-        </div>
+          <div className="max-w-3xl mx-auto p-6 md:p-10 text-left animate-in fade-in slide-in-from-right-4 duration-300 pb-24 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+             <h2 className="text-2xl md:text-3xl font-bold mb-6 text-gray-800 border-b pb-4">Knowledge Check</h2>
+             {quizSubmitted ? (
+                <div className="text-center py-10 bg-white rounded-xl shadow-sm p-8 border border-gray-100">
+                   <div className="text-5xl font-bold mb-2 text-[var(--primary)]">{score}%</div>
+                   <p className="text-gray-500 mb-6">Quiz Completed</p>
+                   <button onClick={() => setShowCertificate(true)} className="bg-[var(--primary)] text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:opacity-90">Get Certificate</button>
+                </div>
+             ) : (
+                <div className="space-y-6 md:space-y-8">
+                   {module.quiz.questions.map((q, qi) => (
+                      <div key={q.id} className="bg-white p-5 md:p-6 rounded-xl border border-gray-200 shadow-sm">
+                         <div className="font-bold text-lg mb-4 text-gray-800 flex gap-3">
+                            <span className="bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm">{qi + 1}</span>
+                            {q.text}
+                         </div>
+                         <div className="space-y-3 pl-2 md:pl-11">
+                            {q.options.map((opt, oi) => (
+                               <label key={oi} className={`flex items-start gap-3 cursor-pointer p-3 rounded-lg transition-colors border ${answers[qi] === oi ? 'border-[var(--primary)] bg-orange-50' : 'border-transparent hover:bg-gray-50 hover:border-gray-200'}`}>
+                                  <input type="radio" name={`q-${qi}`} checked={answers[qi] === oi} onChange={() => {
+                                     const newAns = [...answers]; newAns[qi] = oi; setAnswers(newAns);
+                                  }} className="mt-1 w-4 h-4 accent-[var(--primary)]" />
+                                  <span className="text-gray-700 text-sm md:text-base leading-snug">{opt}</span>
+                               </label>
+                            ))}
+                         </div>
+                      </div>
+                   ))}
+                   <button onClick={submitQuiz} className="bg-gray-800 text-white px-8 py-3 rounded-lg font-bold hover:opacity-90 w-full md:w-auto shadow-md">Submit Answers</button>
+                </div>
+             )}
+          </div>
        );
     }
+
+    // --- Slide Content View ---
+    const slide = slides[currentSlideIndex];
+    if (!slide) return <div className="p-8 text-center text-red-500">Error: Slide not found.</div>;
+    
+    // Canvas Layout Logic
+    if (slide.layout === 'canvas') {
+        if (isMobile) {
+            // -- MOBILE RESPONSIVE MODE (Stack) --
+            const sortedBlocks = getSortedBlocks(slide);
+            
+            return (
+                <div 
+                    className="min-h-full bg-white animate-in fade-in duration-300 flex flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                    style={{ backgroundColor: slide.backgroundColor || '#ffffff' }}
+                >
+                    <style>{`
+                        .slide-typography h1, .slide-typography h2, .slide-typography h3 { font-size: 32px !important; line-height: 1.2 !important; }
+                        .slide-typography p, .slide-typography li { font-size: 18px !important; line-height: 1.5 !important; }
+                    `}</style>
+                    <div className="p-6 pb-24 space-y-6 flex-1">
+                        {sortedBlocks.map(block => (
+                            <MobileStackRenderer key={block.id} block={block} textScale={textScale} />
+                        ))}
+                    </div>
+                    {/* Fixed Footer for Mobile - Stays at bottom of content flow, or could be sticky if desired, but user asked for simple stack */}
+                    <div className="mt-auto">
+                        <SlideFooter leftText={module.footerTextLeft} rightText={module.footerTextRight} className="h-12" />
+                    </div>
+                </div>
+            );
+        } else {
+            // -- DESKTOP LIQUID LAYOUT MODE --
+            // Resizes to 100% width and height of container
+            
+            return (
+                <div 
+                    className="w-full h-full bg-gray-200 relative overflow-hidden"
+                >
+                    {/* 
+                       Global Typography Override for Desktop 
+                       Use vh-based sizes so text scales with screen height primarily, which feels most natural for slides.
+                       Multiplied by textScale to allow Zoom controls.
+                    */}
+                    <style>{`
+                       .slide-typography h1 { font-size: ${4.5 * textScale}vh; line-height: 1.1; margin-bottom: 0.5em; font-weight: 700; }
+                       .slide-typography h2 { font-size: ${3.5 * textScale}vh; line-height: 1.2; margin-bottom: 0.5em; font-weight: 700; }
+                       .slide-typography h3 { font-size: ${2.5 * textScale}vh; line-height: 1.3; margin-bottom: 0.5em; font-weight: 600; }
+                       .slide-typography p, .slide-typography li, .slide-typography span, .slide-typography div { font-size: ${2.0 * textScale}vh; line-height: 1.5; }
+                    `}</style>
+
+                    <div 
+                        className="bg-white shadow-2xl relative overflow-hidden w-full h-full"
+                        style={{
+                            backgroundColor: slide.backgroundColor || '#ffffff',
+                            backgroundImage: slide.backgroundImage ? `url(${slide.backgroundImage})` : undefined,
+                            backgroundSize: 'cover'
+                        }}
+                    >
+                        {slide.blocks?.map(block => <DesktopCanvasRenderer key={block.id} block={block} textScale={textScale} />)}
+                        <div className="absolute bottom-0 w-full">
+                            <SlideFooter leftText={module.footerTextLeft} rightText={module.footerTextRight} />
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+    }
+
+    // Legacy Layout Support
+    return (
+       <div className="max-w-4xl mx-auto p-6 md:p-10 min-h-[60vh] animate-in fade-in slide-in-from-right-4 duration-300 pb-24 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <article className="prose prose-lg text-left" dangerouslySetInnerHTML={{__html: slide.content}} />
+       </div>
+    );
   };
 
+  const hasFooter = !showCertificate && currentSlideIndex > -1;
+
   return (
-    <div className="min-h-screen bg-[var(--bg-color)] flex flex-col font-sans">
-      {/* Viewer Header */}
-      <div className="h-16 bg-[var(--card-bg)] border-b border-gray-200 flex items-center justify-between px-4 md:px-8 shrink-0 fixed top-0 w-full z-40 shadow-sm print:hidden">
-         <div className="flex items-center gap-4">
-           {onExitPreview ? (
-             <button onClick={onExitPreview} className="mr-2 text-gray-500 hover:text-gray-900 font-bold">Close</button>
-           ) : (
-             <button onClick={() => navigate('/')} className="mr-2 text-gray-500 hover:text-gray-900 font-bold">
-               <X size={24} />
-             </button>
-           )}
-           <span className="font-bold text-[var(--primary)] truncate max-w-[150px] md:max-w-md">{module.title}</span>
-         </div>
-         
-         <div className="flex items-center gap-4">
-           <div className="hidden lg:flex items-center gap-2 text-sm font-medium text-gray-500">
-             <span>{currentSlideIndex === -1 ? 'Intro' : isQuizStep ? 'Quiz' : `Slide ${currentSlideIndex + 1} of ${totalSlides}`}</span>
-             <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-[var(--primary)] transition-all duration-500" 
-                  style={{ width: `${((currentSlideIndex + 1) / (maxIndex + 1)) * 100}%` }}
-                ></div>
-             </div>
-           </div>
-           
-           {module.files.length > 0 && (
-             <button 
-               onClick={() => setShowResources(!showResources)}
-               className={`p-2 rounded-lg transition-colors ${showResources ? 'bg-blue-50 text-[var(--primary)]' : 'text-gray-500 hover:bg-gray-100'}`}
-               title="Resources"
-             >
-               <Download size={20} />
-             </button>
-           )}
-         </div>
-      </div>
-
-      {/* Resources Drawer */}
-      {showResources && (
-        <div className="fixed top-16 right-0 w-80 h-[calc(100vh-64px)] bg-white shadow-2xl border-l border-gray-200 z-50 p-6 animate-in slide-in-from-right overflow-y-auto print:hidden">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-lg">Resources</h3>
-            <button onClick={() => setShowResources(false)}><X size={20} className="text-gray-400" /></button>
-          </div>
-          <div className="space-y-3">
-            {module.files.map(file => (
-              <a 
-                key={file.id} 
-                href={file.url}
-                download={file.name} 
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 hover:border-[var(--primary)] transition-colors group"
+    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+       {/* Top Header */}
+       <div className="h-16 bg-white border-b flex items-center justify-between px-4 md:px-6 z-40 shadow-sm shrink-0">
+          <div className="flex items-center gap-3 md:gap-4 overflow-hidden">
+              <button 
+                onClick={() => {
+                    setIsSidebarOpen(!isSidebarOpen);
+                }} 
+                className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors"
+                title="Toggle Menu"
               >
-                {getFileIcon(file.type)}
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate group-hover:text-[var(--primary)]">{file.name}</div>
-                  <div className="text-xs text-gray-500">{file.size}</div>
-                </div>
-              </a>
-            ))}
+                  <Menu size={20} />
+              </button>
+              
+              <div className="flex flex-col overflow-hidden min-w-0">
+                <span className="font-bold text-gray-800 truncate text-sm md:text-base leading-tight">{module.title}</span>
+                <span className="text-xs text-gray-500 font-medium">
+                    {currentSlideIndex === -1 ? 'Introduction' : isQuizStep ? 'Final Quiz' : `Slide ${currentSlideIndex + 1} of ${totalSlides}`}
+                </span>
+              </div>
           </div>
-        </div>
-      )}
 
-      {/* Main Layout Container */}
-      <div className="flex flex-1 overflow-hidden pt-16 pb-[80px] print:pt-0 print:pb-0">
-         
-         {/* Left Sidebar Navigation (Desktop) */}
-         <aside className="w-64 bg-white border-r border-gray-200 overflow-y-auto hidden md:flex flex-col shrink-0 print:hidden z-30">
-            <div className="p-4 space-y-2">
-               <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">Table of Contents</div>
-               
-               <SidebarItem 
-                 title="Introduction"
-                 icon={<BookOpen size={16} />} 
-                 active={currentSlideIndex === -1}
-                 completed={maxVisitedSlideIndex > -1}
-                 locked={false} 
-                 onClick={() => {
-                   setCurrentSlideIndex(-1);
-                   const main = document.getElementById('main-content');
-                   if (main) main.scrollTop = 0;
-                 }}
-               />
+          <button onClick={() => onExitPreview ? onExitPreview() : navigate('/')} className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors shrink-0">
+              <X size={20} />
+          </button>
+       </div>
 
-               {slides.map((slide, idx) => (
-                  <SidebarItem
-                    key={slide.id}
-                    title={slide.title}
-                    icon={slide.icon ? <div className="w-4 h-4 shrink-0" dangerouslySetInnerHTML={{__html: slide.icon}} /> : <FileText size={16} />}
-                    active={currentSlideIndex === idx}
-                    completed={maxVisitedSlideIndex > idx}
-                    locked={idx > maxVisitedSlideIndex}
-                    onClick={() => {
-                       if (idx <= maxVisitedSlideIndex) {
-                         setCurrentSlideIndex(idx);
-                         const main = document.getElementById('main-content');
-                         if (main) main.scrollTop = 0;
-                       }
-                    }}
-                  />
-               ))}
+       {/* Flex Container for Body */}
+       <div className="flex flex-1 overflow-hidden relative">
+           
+           {/* Sidebar Component */}
+           {renderSidebar()}
 
-               {module.quiz?.enabled && (
-                  <SidebarItem
-                    title="Knowledge Check"
-                    icon={<HelpCircle size={16} />}
-                    active={currentSlideIndex === totalSlides}
-                    completed={quizSubmitted} 
-                    locked={totalSlides > maxVisitedSlideIndex}
-                    onClick={() => {
-                       if (totalSlides <= maxVisitedSlideIndex) {
-                         setCurrentSlideIndex(totalSlides);
-                         const main = document.getElementById('main-content');
-                         if (main) main.scrollTop = 0;
-                       }
-                    }}
-                  />
-               )}
-            </div>
-         </aside>
+           {/* Main Content */}
+           <main className="flex-1 flex flex-col min-w-0 bg-gray-100 h-full relative">
+              {/* Content Wrapper - 90% space */}
+              <div className="flex-1 w-full overflow-hidden relative flex flex-col">
+                  {renderContent()}
+              </div>
+              
+              {/* Sticky Bottom Navigation - 10% space */}
+              {hasFooter && (
+                <div className="h-[10vh] min-h-[60px] max-h-[100px] border-t bg-white/95 backdrop-blur-sm px-[10px] flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-30 shrink-0">
+                    <button 
+                        onClick={() => setCurrentSlideIndex(p => p - 1)} 
+                        className="flex items-center gap-2 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base"
+                    >
+                        <ArrowLeft size={18} /> <span className="hidden md:inline">Previous</span>
+                    </button>
+                    
+                    {/* Font Size Controls in Footer */}
+                    <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 mx-2">
+                        <Type size={14} className="text-gray-400 ml-1 hidden sm:block"/>
+                        <button 
+                            onClick={() => setTextScale(Math.max(0.8, textScale - 0.1))}
+                            className="p-1.5 hover:bg-gray-200 rounded text-gray-600 disabled:opacity-30"
+                            disabled={textScale <= 0.8}
+                        >
+                            <Minus size={14} />
+                        </button>
+                        <span className="text-xs w-8 text-center font-bold text-gray-700">{Math.round(textScale * 100)}%</span>
+                        <button 
+                            onClick={() => setTextScale(Math.min(2.0, textScale + 0.1))}
+                            className="p-1.5 hover:bg-gray-200 rounded text-gray-600 disabled:opacity-30"
+                            disabled={textScale >= 2.0}
+                        >
+                            <Plus size={14} />
+                        </button>
+                    </div>
 
-         {/* Scrollable Main Content */}
-         <main id="main-content" className="flex-1 overflow-y-auto px-4 md:px-12 py-8 print:p-0 print:overflow-visible">
-            {renderContent()}
-         </main>
-      </div>
-
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 w-full bg-[var(--card-bg)] border-t border-gray-200 p-4 flex justify-between items-center z-40 print:hidden shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <button
-          onClick={handlePrev}
-          disabled={currentSlideIndex === -1}
-          className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
-            currentSlideIndex === -1 
-              ? 'text-gray-300 cursor-not-allowed' 
-              : 'text-gray-600 hover:bg-gray-100'
-          }`}
-        >
-          <ArrowLeft size={20} /> <span className="hidden md:inline">Previous</span>
-        </button>
-
-        <div className="md:hidden text-xs font-medium text-gray-400">
-           {currentSlideIndex === -1 ? 'Start' : isQuizStep ? 'Quiz' : `${currentSlideIndex + 1} / ${totalSlides}`}
-        </div>
-
-        <button
-          onClick={handleNext}
-          disabled={currentSlideIndex >= maxIndex && !(!module.quiz?.enabled && currentSlideIndex === totalSlides - 1)}
-          className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
-            (currentSlideIndex >= maxIndex && module.quiz?.enabled)
-              ? 'text-gray-300 cursor-not-allowed'
-              : 'bg-[var(--primary)] text-white hover:opacity-90 shadow-lg'
-          }`}
-        >
-          <span className="hidden md:inline">{currentSlideIndex === -1 ? 'Start Module' : 'Next'}</span> <ArrowRight size={20} />
-        </button>
-      </div>
+                    <button 
+                        onClick={handleNext} 
+                        disabled={isQuizStep && !quizSubmitted} 
+                        className="flex items-center gap-2 bg-[var(--primary)] text-white px-6 md:px-8 py-2.5 rounded-lg font-bold hover:opacity-90 disabled:opacity-50 shadow-md transition-all active:scale-95 text-sm md:text-base"
+                    >
+                    {isQuizStep ? 'View Results' : currentSlideIndex === totalSlides - 1 ? (module.quiz?.enabled ? 'Start Quiz' : 'Finish') : 'Next'} <ArrowRight size={18} />
+                    </button>
+                </div>
+              )}
+           </main>
+       </div>
     </div>
   );
 };
