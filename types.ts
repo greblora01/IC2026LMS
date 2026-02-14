@@ -113,3 +113,19 @@ export interface Module {
   createdAt: number;
   lastUpdated: number;
 }
+
+export type UserRole = 'admin' | 'student';
+
+export interface AccessCode {
+  id: string;
+  code: string;
+  role: UserRole;
+  label: string; // e.g. "Hospitality Team", "Super Admin"
+  createdAt: number;
+}
+
+export interface AuthStatus {
+  isAuthenticated: boolean;
+  role: UserRole | null;
+  label: string | null;
+}

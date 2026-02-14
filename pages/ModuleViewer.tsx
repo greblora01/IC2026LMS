@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  FileText, ArrowRight, ArrowLeft, X, Award, Loader2, Menu, List, CheckCircle2, Circle, Type, Minus, Plus, RefreshCw
+  FileText, ArrowRight, ArrowLeft, X, Award, Loader2, Menu, List, CheckCircle2, Circle, Type, Minus, Plus, RefreshCw, Lock
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { Module, SlideBlock, Slide } from '../types';
@@ -126,6 +127,9 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const [error, setError] = useState<string | null>(null);
   
   const [currentSlideIndex, setCurrentSlideIndex] = useState(-1); 
+  // Track the highest slide index the user has reached to prevent skipping forward
+  const [maxSlideIndexReached, setMaxSlideIndexReached] = useState(-1);
+
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [answers, setAnswers] = useState<number[]>([]);
   const [score, setScore] = useState(0);
@@ -157,9 +161,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
       return;
     }
 
-    if (!id) {
-        return;
-    }
+    if (!id) return;
 
     if (!contextLoading) {
       const foundModule = getModule(id);
@@ -177,6 +179,13 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
       setLoading(false);
     }
   }, [id, getModule, previewModule, contextLoading, incrementModuleView]);
+
+  // Update maxSlideIndexReached whenever we move to a new slide
+  useEffect(() => {
+    if (currentSlideIndex > maxSlideIndexReached) {
+        setMaxSlideIndexReached(currentSlideIndex);
+    }
+  }, [currentSlideIndex, maxSlideIndexReached]);
 
   // Completion Tracking Logic
   useEffect(() => {
@@ -237,6 +246,11 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   };
 
   const jumpToSlide = (index: number) => {
+      // Linear progression logic: Only allow jumping to slides already reached or the very next one
+      if (index > maxSlideIndexReached + 1) {
+          alert("Please complete the current topic before moving forward.");
+          return;
+      }
       setCurrentSlideIndex(index);
       setShowCertificate(false);
       if (isMobile) setIsSidebarOpen(false);
@@ -255,53 +269,65 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
         
         <aside className={`${sidebarClasses} bg-white h-[calc(100vh-64px)] overflow-hidden flex flex-col shrink-0`}>
             <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
-                <h3 className="font-bold text-gray-700 flex items-center gap-2 truncate"><List size={18} /> Course Content</h3>
+                <h3 className="font-bold text-gray-700 flex items-center gap-2 truncate"><List size={18} /> Lessons</h3>
                 {isMobile && <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-gray-200 rounded text-gray-500"><X size={20} /></button>}
             </div>
             
             <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
                 <button 
                     onClick={() => jumpToSlide(-1)}
-                    className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${currentSlideIndex === -1 ? 'bg-[var(--primary)] text-white' : 'hover:bg-gray-100 text-gray-700'}`}
+                    className={`w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-colors ${currentSlideIndex === -1 ? 'bg-[var(--primary)] text-white shadow-md' : 'hover:bg-gray-100 text-gray-700'}`}
                 >
                    <div className={`w-2 h-2 rounded-full ${currentSlideIndex === -1 ? 'bg-white' : 'bg-gray-300'}`} />
-                   <span className="text-sm font-medium">Introduction</span>
+                   <span className="text-sm font-bold uppercase tracking-widest">Introduction</span>
                 </button>
                 
-                {slides.map((slide, idx) => (
-                    <button 
-                        key={slide.id}
-                        onClick={() => jumpToSlide(idx)}
-                        className={`w-full text-left px-4 py-3 rounded-lg flex items-start gap-3 transition-colors ${currentSlideIndex === idx ? 'bg-[var(--primary)] text-white shadow-md' : 'hover:bg-gray-100 text-gray-700'}`}
-                    >
-                        {currentSlideIndex > idx ? (
-                             <CheckCircle2 size={16} className="mt-0.5 text-green-500 shrink-0" />
-                        ) : (
-                             <Circle size={16} className={`mt-0.5 shrink-0 ${currentSlideIndex === idx ? 'text-white' : 'text-gray-300'}`} />
-                        )}
-                        <span className="text-sm font-medium leading-tight">{slide.title || `Slide ${idx + 1}`}</span>
-                    </button>
-                ))}
+                {slides.map((slide, idx) => {
+                    const isLocked = idx > maxSlideIndexReached + 1;
+                    const isCompleted = idx <= maxSlideIndexReached;
+                    
+                    return (
+                        <button 
+                            key={slide.id}
+                            disabled={isLocked}
+                            onClick={() => jumpToSlide(idx)}
+                            className={`w-full text-left px-4 py-3 rounded-xl flex items-start gap-3 transition-all ${currentSlideIndex === idx ? 'bg-[var(--primary)] text-white shadow-lg scale-[1.02]' : isLocked ? 'opacity-40 cursor-not-allowed text-gray-400' : 'hover:bg-gray-100 text-gray-700'}`}
+                        >
+                            {isLocked ? (
+                                <Lock size={14} className="mt-1 shrink-0" />
+                            ) : isCompleted ? (
+                                <CheckCircle2 size={16} className={`mt-0.5 shrink-0 ${currentSlideIndex === idx ? 'text-white' : 'text-green-500'}`} />
+                            ) : (
+                                <Circle size={16} className={`mt-0.5 shrink-0 ${currentSlideIndex === idx ? 'text-white' : 'text-gray-300'}`} />
+                            )}
+                            <span className={`text-sm font-medium leading-tight ${isLocked ? 'font-normal' : 'font-bold'}`}>
+                                {slide.title || `Lesson ${idx + 1}`}
+                            </span>
+                        </button>
+                    );
+                })}
 
                 {module.quiz?.enabled && (
                     <button 
+                        disabled={totalSlides > maxSlideIndexReached + 1}
                         onClick={() => jumpToSlide(totalSlides)}
-                        className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${currentSlideIndex === totalSlides ? 'bg-[var(--primary)] text-white' : 'hover:bg-gray-100 text-gray-700'}`}
+                        className={`w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-colors ${currentSlideIndex === totalSlides ? 'bg-[var(--primary)] text-white' : (totalSlides > maxSlideIndexReached + 1) ? 'opacity-40 cursor-not-allowed text-gray-400' : 'hover:bg-gray-100 text-gray-700'}`}
                     >
                          <Award size={16} className={`${currentSlideIndex === totalSlides ? 'text-white' : 'text-gray-400'}`} />
-                         <span className="text-sm font-medium">Knowledge Check</span>
+                         <span className="text-sm font-bold uppercase tracking-widest">Knowledge Check</span>
+                         {totalSlides > maxSlideIndexReached + 1 && <Lock size={12} className="ml-auto" />}
                     </button>
                 )}
             </div>
-            <div className="p-4 border-t border-gray-100 bg-gray-50 shrink-0">
-                <div className="text-xs text-gray-500 mb-1 flex justify-between">
-                    <span>Progress</span>
-                    <span>{Math.round(((currentSlideIndex + 1) / (maxIndex + 1)) * 100)}%</span>
+            <div className="p-5 border-t border-gray-100 bg-gray-50 shrink-0">
+                <div className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 flex justify-between">
+                    <span>Course Progress</span>
+                    <span>{Math.round(((maxSlideIndexReached + 1) / (maxIndex + 1)) * 100)}%</span>
                 </div>
                 <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div 
-                        className="h-full bg-[var(--primary)] transition-all duration-500" 
-                        style={{ width: `${((currentSlideIndex + 1) / (maxIndex + 1)) * 100}%` }}
+                        className="h-full bg-[var(--primary)] transition-all duration-700 ease-out" 
+                        style={{ width: `${((maxSlideIndexReached + 1) / (maxIndex + 1)) * 100}%` }}
                     />
                 </div>
             </div>
@@ -311,28 +337,42 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
   const renderContent = () => {
     if (showCertificate) return (
-       <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-white rounded-xl shadow-sm border border-gray-200 m-4 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          <Award size={64} className="text-[var(--primary)] mb-4" />
-          <h1 className="text-3xl md:text-4xl font-bold mb-2 text-[var(--text-color)]">Certificate of Completion</h1>
-          <p className="text-gray-500 mb-8">Awarded to {userName || '[Your Name]'}</p>
-          <div className="w-full max-w-md space-y-4">
-             {!userName && <input type="text" placeholder="Enter Name for Certificate" className="w-full p-3 border rounded text-gray-700 outline-none focus:border-[var(--primary)]" onBlur={e => setUserName(e.target.value)} />}
-             <button onClick={() => window.print()} className="bg-[var(--primary)] text-white px-6 py-3 rounded-lg font-bold hover:opacity-90 w-full shadow-md">Print Certificate</button>
-             <button onClick={() => { setShowCertificate(false); setCurrentSlideIndex(-1); }} className="text-gray-400 underline text-sm hover:text-gray-600">Back to Introduction</button>
+       <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-white rounded-[3rem] shadow-2xl border border-gray-100 m-8 animate-in fade-in zoom-in-95 duration-500 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <Award size={100} className="text-[var(--primary)] mb-8" />
+          <h1 className="text-4xl md:text-5xl font-black mb-4 text-gray-900 tracking-tighter">Certificate of Achievement</h1>
+          <p className="text-gray-500 text-xl font-medium mb-12 max-w-lg">This certifies that you have successfully completed the training module: <br/><span className="text-gray-900 font-bold">{module.title}</span></p>
+          
+          <div className="w-full max-w-md space-y-6">
+             {!userName && (
+                <div className="space-y-2 text-left">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">Full Legal Name</label>
+                    <input 
+                        type="text" 
+                        placeholder="Enter Name for Certificate" 
+                        className="w-full p-5 bg-gray-50 border-2 border-gray-100 rounded-2xl text-gray-900 font-bold outline-none focus:border-[var(--primary)] transition-all" 
+                        onBlur={e => setUserName(e.target.value)} 
+                    />
+                </div>
+             )}
+             <button onClick={() => window.print()} className="bg-[var(--primary)] text-white px-10 py-5 rounded-3xl font-black text-lg hover:opacity-90 w-full shadow-2xl shadow-orange-100 transition-all active:scale-95">Print Certificate</button>
+             <button onClick={() => { setShowCertificate(false); setCurrentSlideIndex(-1); }} className="text-gray-400 font-black uppercase tracking-widest text-xs hover:text-[var(--primary)] transition-colors">Restart Course</button>
           </div>
        </div>
     );
 
     if (currentSlideIndex === -1) {
       return (
-        <div className="flex flex-col items-center justify-center h-full text-center p-6 md:p-12 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          <div className="w-20 h-20 md:w-24 md:h-24 bg-[var(--primary)] rounded-2xl flex items-center justify-center text-white mb-6 md:mb-8 shadow-xl shrink-0">
-             <FileText size={40} className="md:w-12 md:h-12" />
+        <div className="flex flex-col items-center justify-center h-full text-center p-6 md:p-12 animate-in fade-in slide-in-from-bottom-8 duration-700 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="w-24 h-24 bg-[var(--primary)] rounded-[2rem] flex items-center justify-center text-white mb-10 shadow-2xl shadow-orange-200 shrink-0 transform hover:rotate-6 transition-transform">
+             <FileText size={48} />
           </div>
-          <h1 className="text-3xl md:text-5xl font-bold mb-4 md:mb-6 text-[var(--primary)] leading-tight">{module.title}</h1>
-          <p className="text-lg md:text-xl text-gray-500 mb-8 md:mb-10 max-w-2xl leading-relaxed">{module.description}</p>
-          <button onClick={handleNext} className="bg-[var(--primary)] text-white px-8 py-4 rounded-full font-bold text-lg hover:opacity-90 shadow-lg flex items-center gap-2 transition-transform hover:scale-105">
-            Start Module <ArrowRight />
+          <div className="space-y-4 mb-12">
+            <span className="bg-orange-50 text-[var(--primary)] px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-orange-100">Training Module</span>
+            <h1 className="text-4xl md:text-6xl font-black text-gray-900 tracking-tighter leading-tight max-w-3xl mx-auto">{module.title}</h1>
+            <p className="text-xl text-gray-500 font-medium max-w-2xl mx-auto leading-relaxed">{module.description}</p>
+          </div>
+          <button onClick={handleNext} className="bg-[var(--primary)] text-white px-12 py-5 rounded-[2rem] font-black text-xl hover:opacity-95 shadow-2xl shadow-orange-200 flex items-center gap-3 transition-all hover:scale-105 active:scale-95">
+            Start Learning <ArrowRight size={24} strokeWidth={3} />
           </button>
         </div>
       );
@@ -340,35 +380,44 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
     if (isQuizStep) {
        return (
-          <div className="max-w-3xl mx-auto p-6 md:p-10 text-left animate-in fade-in slide-in-from-right-4 duration-300 pb-24 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-             <h2 className="text-2xl md:text-3xl font-bold mb-6 text-gray-800 border-b pb-4">Knowledge Check</h2>
+          <div className="max-w-4xl mx-auto p-6 md:p-10 text-left animate-in fade-in slide-in-from-right-8 duration-500 pb-24 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+             <div className="mb-12 border-b border-gray-100 pb-8">
+                <h2 className="text-4xl font-black text-gray-900 tracking-tighter mb-2">Final Knowledge Check</h2>
+                <p className="text-gray-500 font-medium text-lg">Demonstrate your understanding of the materials covered.</p>
+             </div>
+             
              {quizSubmitted ? (
-                <div className="text-center py-10 bg-white rounded-xl shadow-sm p-8 border border-gray-100">
-                   <div className="text-5xl font-bold mb-2 text-[var(--primary)]">{score}%</div>
-                   <p className="text-gray-500 mb-6">Quiz Completed</p>
-                   <button onClick={() => setShowCertificate(true)} className="bg-[var(--primary)] text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:opacity-90">Get Certificate</button>
+                <div className="text-center py-20 bg-white rounded-[3rem] shadow-2xl p-12 border border-gray-100 animate-in zoom-in-95 duration-500">
+                   <div className="inline-flex items-center justify-center w-32 h-32 bg-orange-50 rounded-full mb-6">
+                      <div className="text-5xl font-black text-[var(--primary)]">{score}%</div>
+                   </div>
+                   <h3 className="text-3xl font-black text-gray-900 mb-4">Quiz Completed!</h3>
+                   <p className="text-gray-500 font-medium text-lg mb-10">You've reached the end of the evaluation phase.</p>
+                   <button onClick={() => setShowCertificate(true)} className="bg-[var(--primary)] text-white px-12 py-5 rounded-[2rem] font-black text-lg shadow-2xl shadow-orange-100 hover:opacity-90 active:scale-95 transition-all">Generate Certificate</button>
                 </div>
              ) : (
-                <div className="space-y-6 md:space-y-8">
+                <div className="space-y-10">
                    {module.quiz.questions.map((q, qi) => (
-                      <div key={q.id} className="bg-white p-5 md:p-6 rounded-xl border border-gray-200 shadow-sm">
-                         <div className="font-bold text-lg mb-4 text-gray-800 flex gap-3">
-                            <span className="bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm">{qi + 1}</span>
-                            {q.text}
+                      <div key={q.id} className="bg-white p-8 md:p-10 rounded-[2.5rem] border border-gray-100 shadow-sm transition-all hover:shadow-md">
+                         <div className="font-black text-2xl mb-8 text-gray-900 flex gap-6">
+                            <span className="bg-orange-50 text-[var(--primary)] w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 text-xl font-black border border-orange-100">{qi + 1}</span>
+                            <span className="mt-1">{q.text}</span>
                          </div>
-                         <div className="space-y-3 pl-2 md:pl-11">
+                         <div className="space-y-4 pl-0 md:pl-16">
                             {q.options.map((opt, oi) => (
-                               <label key={oi} className={`flex items-start gap-3 cursor-pointer p-3 rounded-lg transition-colors border ${answers[qi] === oi ? 'border-[var(--primary)] bg-orange-50' : 'border-transparent hover:bg-gray-50 hover:border-gray-200'}`}>
+                               <label key={oi} className={`flex items-start gap-4 cursor-pointer p-5 rounded-2xl transition-all border-2 ${answers[qi] === oi ? 'border-[var(--primary)] bg-orange-50 shadow-inner' : 'border-gray-50 bg-gray-50/30 hover:bg-gray-50 hover:border-gray-100'}`}>
                                   <input type="radio" name={`q-${qi}`} checked={answers[qi] === oi} onChange={() => {
                                      const newAns = [...answers]; newAns[qi] = oi; setAnswers(newAns);
-                                  }} className="mt-1 w-4 h-4 accent-[var(--primary)]" />
-                                  <span className="text-gray-700 text-sm md:text-base leading-snug">{opt}</span>
+                                  }} className="mt-1.5 w-5 h-5 accent-[var(--primary)] shrink-0" />
+                                  <span className={`text-lg leading-snug font-bold ${answers[qi] === oi ? 'text-gray-900' : 'text-gray-600'}`}>{opt}</span>
                                </label>
                             ))}
                          </div>
                       </div>
                    ))}
-                   <button onClick={submitQuiz} className="bg-gray-800 text-white px-8 py-3 rounded-lg font-bold hover:opacity-90 w-full md:w-auto shadow-md">Submit Answers</button>
+                   <div className="pt-10 flex justify-center">
+                    <button onClick={submitQuiz} className="bg-gray-900 text-white px-16 py-6 rounded-[2.5rem] font-black text-xl hover:opacity-90 shadow-2xl transition-all active:scale-95">Submit Answers</button>
+                   </div>
                 </div>
              )}
           </div>
@@ -384,37 +433,36 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
             
             return (
                 <div 
-                    className="min-h-full bg-white animate-in fade-in duration-300 flex flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                    className="min-h-full bg-white animate-in fade-in duration-500 flex flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                     style={{ backgroundColor: slide.backgroundColor || '#ffffff' }}
                 >
                     <style>{`
-                        .slide-typography h1, .slide-typography h2, .slide-typography h3 { font-size: 32px !important; line-height: 1.2 !important; }
-                        .slide-typography p, .slide-typography li { font-size: 18px !important; line-height: 1.5 !important; }
+                        .slide-typography h1, .slide-typography h2, .slide-typography h3 { font-weight: 900 !important; tracking: -0.05em !important; }
                     `}</style>
-                    <div className="p-6 pb-24 space-y-6 flex-1">
+                    <div className="p-8 pb-32 space-y-8 flex-1">
                         {sortedBlocks.map(block => (
                             <MobileStackRenderer key={block.id} block={block} textScale={textScale} />
                         ))}
                     </div>
                     <div className="mt-auto">
-                        <SlideFooter leftText={module.footerTextLeft} rightText={module.footerTextRight} className="h-12" />
+                        <SlideFooter leftText={module.footerTextLeft} rightText={module.footerTextRight} className="h-16" />
                     </div>
                 </div>
             );
         } else {
             return (
                 <div 
-                    className="w-full h-full bg-gray-200 relative overflow-hidden"
+                    className="w-full h-full bg-gray-200 relative overflow-hidden flex items-center justify-center p-8"
                 >
                     <style>{`
-                       .slide-typography h1 { font-size: ${4.5 * textScale}vh; line-height: 1.1; margin-bottom: 0.5em; font-weight: 700; }
-                       .slide-typography h2 { font-size: ${3.5 * textScale}vh; line-height: 1.2; margin-bottom: 0.5em; font-weight: 700; }
-                       .slide-typography h3 { font-size: ${2.5 * textScale}vh; line-height: 1.3; margin-bottom: 0.5em; font-weight: 600; }
-                       .slide-typography p, .slide-typography li, .slide-typography span, .slide-typography div { font-size: ${2.0 * textScale}vh; line-height: 1.5; }
+                       .slide-typography h1 { font-size: ${5 * textScale}vh; line-height: 1.0; margin-bottom: 0.5em; font-weight: 900; tracking: -0.05em; }
+                       .slide-typography h2 { font-size: ${4 * textScale}vh; line-height: 1.1; margin-bottom: 0.5em; font-weight: 800; tracking: -0.02em; }
+                       .slide-typography h3 { font-size: ${3 * textScale}vh; line-height: 1.2; margin-bottom: 0.5em; font-weight: 700; }
+                       .slide-typography p, .slide-typography li, .slide-typography span, .slide-typography div { font-size: ${2.2 * textScale}vh; line-height: 1.6; font-weight: 500; }
                     `}</style>
 
                     <div 
-                        className="bg-white shadow-2xl relative overflow-hidden w-full h-full"
+                        className="bg-white shadow-[0_40px_100px_-20px_rgba(0,0,0,0.2)] relative overflow-hidden aspect-[16/9] w-full max-h-full max-w-full rounded-[1rem]"
                         style={{
                             backgroundColor: slide.backgroundColor || '#ffffff',
                             backgroundImage: slide.backgroundImage ? `url(${slide.backgroundImage})` : undefined,
@@ -423,7 +471,7 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
                     >
                         {slide.blocks?.map(block => <DesktopCanvasRenderer key={block.id} block={block} textScale={textScale} />)}
                         <div className="absolute bottom-0 w-full">
-                            <SlideFooter leftText={module.footerTextLeft} rightText={module.footerTextRight} />
+                            <SlideFooter leftText={module.footerTextLeft} rightText={module.footerTextRight} className="h-[12%]" />
                         </div>
                     </div>
                 </div>
@@ -432,8 +480,8 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     }
 
     return (
-       <div className="max-w-4xl mx-auto p-6 md:p-10 min-h-[60vh] animate-in fade-in slide-in-from-right-4 duration-300 pb-24 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          <article className="prose prose-lg text-left" dangerouslySetInnerHTML={{__html: slide.content}} />
+       <div className="max-w-5xl mx-auto p-10 md:p-16 min-h-[70vh] animate-in fade-in slide-in-from-right-8 duration-500 pb-32 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <article className="prose prose-xl prose-orange text-left slide-typography" dangerouslySetInnerHTML={{__html: slide.content}} />
        </div>
     );
   };
@@ -441,73 +489,73 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const hasFooter = !showCertificate && currentSlideIndex > -1;
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
-       <div className="h-16 bg-white border-b flex items-center justify-between px-4 md:px-6 z-40 shadow-sm shrink-0">
-          <div className="flex items-center gap-3 md:gap-4 overflow-hidden">
+    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden theme-transition">
+       <div className="h-20 bg-white border-b flex items-center justify-between px-6 z-40 shadow-sm shrink-0">
+          <div className="flex items-center gap-6 overflow-hidden">
               <button 
                 onClick={() => {
                     setIsSidebarOpen(!isSidebarOpen);
                 }} 
-                className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors"
-                title="Toggle Menu"
+                className="p-3 hover:bg-gray-50 rounded-2xl text-gray-500 transition-all active:scale-90"
+                title="Toggle Sidebar"
               >
-                  <Menu size={20} />
+                  <Menu size={24} />
               </button>
               
-              <div className="flex flex-col overflow-hidden min-w-0">
-                <span className="font-bold text-gray-800 truncate text-sm md:text-base leading-tight">{module.title}</span>
-                <span className="text-xs text-gray-500 font-medium">
-                    {currentSlideIndex === -1 ? 'Introduction' : isQuizStep ? 'Final Quiz' : `Slide ${currentSlideIndex + 1} of ${totalSlides}`}
+              <div className="flex flex-col overflow-hidden min-w-0 text-left">
+                <span className="font-black text-gray-900 truncate text-lg tracking-tight leading-tight">{module.title}</span>
+                <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest flex items-center gap-2">
+                    {currentSlideIndex === -1 ? 'Introduction' : isQuizStep ? 'Course Assessment' : `Lesson ${currentSlideIndex + 1} of ${totalSlides}`}
                 </span>
               </div>
           </div>
 
-          <button onClick={() => onExitPreview ? onExitPreview() : navigate('/')} className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors shrink-0">
-              <X size={20} />
+          <button onClick={() => onExitPreview ? onExitPreview() : navigate('/')} className="p-3 hover:bg-red-50 rounded-full text-gray-400 hover:text-red-500 transition-all shrink-0">
+              <X size={24} strokeWidth={3} />
           </button>
        </div>
 
        <div className="flex flex-1 overflow-hidden relative">
            {renderSidebar()}
-           <main className="flex-1 flex flex-col min-w-0 bg-gray-100 h-full relative">
+           <main className="flex-1 flex flex-col min-w-0 bg-gray-50 h-full relative">
               <div className="flex-1 w-full overflow-hidden relative flex flex-col">
                   {renderContent()}
               </div>
               
               {hasFooter && (
-                <div className="h-[10vh] min-h-[60px] max-h-[100px] border-t bg-white/95 backdrop-blur-sm px-[10px] flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-30 shrink-0">
+                <div className="h-24 md:h-28 border-t bg-white/80 backdrop-blur-xl px-8 flex justify-between items-center z-30 shrink-0">
                     <button 
                         onClick={() => setCurrentSlideIndex(p => p - 1)} 
-                        className="flex items-center gap-2 text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base"
+                        className={`flex items-center gap-3 px-6 py-4 rounded-2xl font-black transition-all text-sm uppercase tracking-widest ${currentSlideIndex === -1 ? 'opacity-0 pointer-events-none' : 'text-gray-500 hover:bg-gray-100'}`}
                     >
-                        <ArrowLeft size={18} /> <span className="hidden md:inline">Previous</span>
+                        <ArrowLeft size={20} strokeWidth={3} /> Back
                     </button>
                     
-                    <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 mx-2">
-                        <Type size={14} className="text-gray-400 ml-1 hidden sm:block"/>
+                    <div className="hidden sm:flex items-center gap-2 bg-gray-50 rounded-2xl p-2 border border-gray-100">
+                        <Type size={16} className="text-gray-400 ml-2"/>
                         <button 
-                            onClick={() => setTextScale(Math.max(0.8, textScale - 0.1))}
-                            className="p-1.5 hover:bg-gray-200 rounded text-gray-600 disabled:opacity-30"
-                            disabled={textScale <= 0.8}
+                            onClick={() => setTextScale(Math.max(0.7, textScale - 0.1))}
+                            className="p-2 hover:bg-white rounded-xl text-gray-600 shadow-sm disabled:opacity-30 transition-all active:scale-90"
+                            disabled={textScale <= 0.7}
                         >
-                            <Minus size={14} />
+                            <Minus size={16} />
                         </button>
-                        <span className="text-xs w-8 text-center font-bold text-gray-700">{Math.round(textScale * 100)}%</span>
+                        <span className="text-[10px] w-12 text-center font-black text-gray-400 uppercase tracking-tighter">Zoom {Math.round(textScale * 100)}%</span>
                         <button 
-                            onClick={() => setTextScale(Math.min(2.0, textScale + 0.1))}
-                            className="p-1.5 hover:bg-gray-200 rounded text-gray-600 disabled:opacity-30"
-                            disabled={textScale >= 2.0}
+                            onClick={() => setTextScale(Math.min(2.5, textScale + 0.1))}
+                            className="p-2 hover:bg-white rounded-xl text-gray-600 shadow-sm disabled:opacity-30 transition-all active:scale-90"
+                            disabled={textScale >= 2.5}
                         >
-                            <Plus size={14} />
+                            <Plus size={16} />
                         </button>
                     </div>
 
                     <button 
                         onClick={handleNext} 
                         disabled={isQuizStep && !quizSubmitted} 
-                        className="flex items-center gap-2 bg-[var(--primary)] text-white px-6 md:px-8 py-2.5 rounded-lg font-bold hover:opacity-90 disabled:opacity-50 shadow-md transition-all active:scale-95 text-sm md:text-base"
+                        className="flex items-center gap-4 bg-[var(--primary)] text-white px-10 py-5 rounded-[1.5rem] font-black hover:opacity-95 disabled:opacity-50 shadow-2xl shadow-orange-100 transition-all active:scale-95 text-sm uppercase tracking-[0.2em]"
                     >
-                    {isQuizStep ? 'View Results' : currentSlideIndex === totalSlides - 1 ? (module.quiz?.enabled ? 'Start Quiz' : 'Finish') : 'Next'} <ArrowRight size={18} />
+                    {isQuizStep ? 'Finish Quiz' : currentSlideIndex === totalSlides - 1 ? (module.quiz?.enabled ? 'Go to Quiz' : 'Complete Course') : 'Continue'} <ArrowRight size={20} strokeWidth={3} />
                     </button>
                 </div>
               )}
