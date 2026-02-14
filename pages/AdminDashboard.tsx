@@ -148,18 +148,28 @@ export const AdminDashboard: React.FC = () => {
               className="bg-white rounded-[3rem] border-4 border-transparent hover:border-[var(--primary)]/20 shadow-sm hover:shadow-2xl transition-all duration-500 flex flex-col overflow-hidden group relative transform hover:-translate-y-2 cursor-pointer"
               onClick={() => setActiveOverlayId(module.id)}
             >
-              {/* Bigger Thumbnail Area */}
-              <div className="h-96 w-full bg-gray-50 relative overflow-hidden border-b border-gray-100">
-                <div className="w-full h-full scale-[0.8] origin-top-left transition-transform duration-700 group-hover:scale-[0.82]">
-                  <SlidePreview 
-                      slide={getThumbnailSlide(module)} 
-                      footerLeft={module.footerTextLeft} 
-                      footerRight={module.footerTextRight} 
-                  />
-                </div>
+              {/* Cover Image Area */}
+              <div className="h-96 w-full bg-gray-100 relative overflow-hidden border-b border-gray-100">
+                {module.thumbnail ? (
+                  <div className="w-full h-full overflow-hidden">
+                    <img 
+                      src={module.thumbnail} 
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                      alt={module.title} 
+                    />
+                  </div>
+                ) : (
+                  <div className="w-full h-full scale-[1.0] transition-transform duration-700 group-hover:scale-[1.02]">
+                    <SlidePreview 
+                        slide={getThumbnailSlide(module)} 
+                        footerLeft={module.footerTextLeft} 
+                        footerRight={module.footerTextRight} 
+                    />
+                  </div>
+                )}
 
                 {/* Integrated Card Overlay */}
-                <div className={`absolute inset-0 bg-black/60 backdrop-blur-xl transition-all duration-500 flex flex-col items-center justify-center p-12 gap-6 ${activeOverlayId === module.id ? 'opacity-100 pointer-events-auto translate-y-0' : 'opacity-0 pointer-events-none translate-y-4 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0'}`}>
+                <div className={`absolute inset-0 bg-black/60 backdrop-blur-xl transition-all duration-500 flex flex-col items-center justify-center p-12 gap-6 z-40 ${activeOverlayId === module.id ? 'opacity-100 pointer-events-auto translate-y-0' : 'opacity-0 pointer-events-none translate-y-4 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0'}`}>
                    <button 
                       onClick={(e) => { e.stopPropagation(); navigate(`/view/${module.id}`); }}
                       className="w-full max-w-xs bg-[var(--primary)] text-white py-6 rounded-3xl font-black flex items-center justify-center gap-4 shadow-2xl hover:scale-[1.05] active:scale-95 transition-all uppercase tracking-[0.2em] text-lg"
@@ -203,14 +213,14 @@ export const AdminDashboard: React.FC = () => {
                    </button>
                 </div>
 
-                <div className="absolute top-8 left-8 bg-white/95 backdrop-blur-md rounded-2xl px-5 py-2.5 text-[11px] font-black text-gray-800 shadow-2xl uppercase tracking-[0.2em] border border-white/50 border-l-4 border-l-[var(--primary)]">
+                <div className="absolute top-8 left-8 bg-white/95 backdrop-blur-md rounded-2xl px-5 py-2.5 text-[11px] font-black text-gray-800 shadow-2xl uppercase tracking-[0.2em] border border-white/50 border-l-4 border-l-[var(--primary)] z-10">
                    {new Date(module.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>
               </div>
 
               {/* Card Footer Content */}
-              <div className="p-10 flex-1 text-left flex flex-col relative">
-                <div className="absolute top-0 right-10 -translate-y-1/2 w-16 h-16 bg-white rounded-2xl shadow-xl flex items-center justify-center text-[var(--primary)] border-2 border-gray-50">
+              <div className="p-10 flex-1 text-left flex flex-col relative bg-white">
+                <div className="absolute top-0 right-10 -translate-y-1/2 w-16 h-16 bg-white rounded-2xl shadow-xl flex items-center justify-center text-[var(--primary)] border-2 border-gray-50 z-10">
                    <BookOpen size={28} />
                 </div>
                 <h3 className="font-black text-3xl leading-tight text-gray-900 mb-4 line-clamp-2 pr-12">{module.title}</h3>

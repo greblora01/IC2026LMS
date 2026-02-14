@@ -1,20 +1,48 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Save, Plus, Trash, CheckCircle, 
   Eye, Image as ImageIcon, Loader2, Type as TypeIcon, 
   Youtube, X, Grid3X3, Hash, Star, Settings2, Trash2, 
-  MousePointer2, Square, Layers, LayoutTemplate, ChevronRight
+  MousePointer2, Square, Layers, LayoutTemplate, ChevronRight,
+  ImagePlus, Upload, Copy, FileUp, FileText
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { RichTextEditor, TextToolbar } from '../components/RichTextEditor';
 import { Module, Slide, SlideBlock, BlockType } from '../types';
 import { ModuleViewer } from './ModuleViewer';
 import { NEW_MODULE_TEMPLATE_SLIDES, SLIDE_TEMPLATES } from '../constants';
+import * as pdfjs from 'pdfjs-dist';
+
+/**
+ * Robust PDF.js helper to handle different module resolutions from esm.sh
+ */
+const getPdfLib = () => {
+  const lib = pdfjs as any;
+  if (lib && lib.getDocument) return lib;
+  if (lib && lib.default && lib.default.getDocument) return lib.default;
+  return lib;
+};
+
+/**
+ * Ensures the worker is correctly pointed to a stable CDN location.
+ */
+const initPdfWorker = () => {
+  try {
+    const lib = getPdfLib();
+    if (lib && lib.GlobalWorkerOptions) {
+      lib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+    }
+  } catch (e) {
+    console.warn("PDF.js worker initialization delayed:", e);
+  }
+};
+
+// Initial call
+initPdfWorker();
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
-const GRID_SIZE = 2; // 2% grid for snapping
+const GRID_SIZE = 2; 
 const CANVAS_BASE_WIDTH = 960;
 const CANVAS_BASE_HEIGHT = 540;
 
@@ -22,7 +50,7 @@ const safeClone = <T,>(obj: T): T => {
   try {
     return JSON.parse(JSON.stringify(obj));
   } catch (e) {
-    return { ...obj };
+    return { ...obj } as T;
   }
 };
 
@@ -86,11 +114,12 @@ const SlideThumbnail: React.FC<{ slide: Slide; footerTextLeft?: string; footerTe
 export const ModuleEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { addModule, updateModule, getModule } = useAppContext();
+  const { addModule, updateModule, getModule, theme } = useAppContext();
   
   const [formData, setFormData] = useState<Partial<Module>>({
     title: '',
     description: '',
+    thumbnail: '',
     thumbnailSlideId: '',
     footerTextLeft: 'VOLUNTEER TRAINING',
     footerTextRight: '2026 IC',
@@ -103,6 +132,7 @@ export const ModuleEditor: React.FC = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [canvasScale, setCanvasScale] = useState(1);
   
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -118,8 +148,13 @@ export const ModuleEditor: React.FC = () => {
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const resizeHandleRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize Data
+  useEffect(() => {
+    initPdfWorker();
+  }, []);
+
   useEffect(() => {
     if (id) {
       const existing = getModule(id);
@@ -138,13 +173,13 @@ export const ModuleEditor: React.FC = () => {
          ...prev, 
          title: 'New Training Module', 
          slides: templateSlides as Slide[], 
-         thumbnailSlideId: templateSlides[0].id 
+         thumbnailSlideId: templateSlides[0].id,
+         thumbnail: ''
        }));
        setActiveSectionId(templateSlides[0].id);
     }
-  }, [id, getModule]);
+  }, [id, getModule, navigate]);
 
-  // Responsive Canvas Scaling
   useEffect(() => {
     const handleResize = () => {
       if (!canvasContainerRef.current) return;
@@ -199,6 +234,72 @@ export const ModuleEditor: React.FC = () => {
     setFormData(prev => ({ ...prev, slides: [...(prev.slides || []), newSlide] }));
     setActiveSectionId(newSlide.id);
     setShowTemplateModal(false);
+  };
+
+  const duplicateSlide = () => {
+    if (!activeSlide) return;
+    const newSlide = safeClone(activeSlide);
+    newSlide.id = generateId();
+    newSlide.blocks = (newSlide.blocks || []).map(b => ({ ...b, id: generateId() }));
+    
+    const currentIdx = formData.slides?.findIndex(s => s.id === activeSectionId) ?? -1;
+    const newSlides = [...(formData.slides || [])];
+    newSlides.splice(currentIdx + 1, 0, newSlide);
+    
+    setFormData(prev => ({ ...prev, slides: newSlides }));
+    setActiveSectionId(newSlide.id);
+  };
+
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsProcessingFile(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const lib = getPdfLib();
+      const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
+      const newSlides: Slide[] = [];
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const textItems = textContent.items.map((item: any) => item.str).join(' ');
+        
+        const words = textItems.trim().split(/\s+/);
+        const titleText = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
+        const bodyText = textItems.trim();
+
+        const slide: Slide = {
+          id: generateId(),
+          title: `PDF Page ${i}`,
+          layout: 'canvas',
+          blocks: [
+            {
+              id: generateId(),
+              type: 'text',
+              x: 10, y: 15, width: 80, height: 70,
+              content: `
+                <h2 style="color: ${theme.primary}; font-weight: 800; font-size: 32px; margin-bottom: 20px;">${titleText}</h2>
+                <p style="font-size: 18px; line-height: 1.6; color: ${theme.text};">${bodyText}</p>
+              `,
+              zIndex: 1
+            }
+          ],
+          content: ''
+        };
+        newSlides.push(slide);
+      }
+
+      setFormData(prev => ({ ...prev, slides: [...(prev.slides || []), ...newSlides] }));
+      if (newSlides.length > 0) setActiveSectionId(newSlides[0].id);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to process PDF.");
+    } finally {
+      setIsProcessingFile(false);
+      if (pdfInputRef.current) pdfInputRef.current.value = '';
+    }
   };
 
   const deleteSlide = (slideId: string) => {
@@ -307,6 +408,53 @@ export const ModuleEditor: React.FC = () => {
     setIsResizing(false);
   };
 
+  const handleThumbnailFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({ ...prev, thumbnail: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const ColorInput = ({ label, value, onChange }: { label: string, value: string, onChange: (v: string) => void }) => {
+    const palette = [theme.primary, theme.accent, '#FFFFFF', '#000000', '#F3F4F6', '#EF4444', '#10B981', '#3B82F6'];
+    
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-gray-500">{label}</span>
+          <div className="relative group flex items-center gap-2">
+            <div 
+              className="w-10 h-10 rounded-xl border-2 border-gray-100 shadow-sm overflow-hidden flex items-center justify-center cursor-pointer transition-transform active:scale-95"
+              style={{ backgroundColor: value }}
+            >
+              <input 
+                type="color" 
+                value={value || '#ffffff'} 
+                onChange={e => onChange(e.target.value)} 
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" 
+              />
+            </div>
+            <span className="text-[10px] font-mono font-bold text-gray-400 uppercase">{value}</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {palette.map(c => (
+            <button 
+              key={c}
+              onClick={() => onChange(c)}
+              className={`w-6 h-6 rounded-md border border-gray-100 transition-transform hover:scale-110 active:scale-90 ${value === c ? 'ring-2 ring-[var(--primary)] ring-offset-1' : ''}`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   if (showPreview) return (
     <div className="fixed inset-0 z-[100] bg-white overflow-y-auto">
       <button onClick={() => setShowPreview(false)} className="fixed top-6 right-6 z-[110] bg-gray-900 text-white px-8 py-3 rounded-2xl font-black shadow-2xl hover:scale-105 transition-all">
@@ -322,9 +470,20 @@ export const ModuleEditor: React.FC = () => {
       onMouseUp={handleGlobalMouseUp} 
       onMouseMove={handleMouseMove}
     >
-      {/* Top Header */}
+      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleThumbnailFileChange} />
+      <input type="file" ref={pdfInputRef} className="hidden" accept=".pdf" onChange={handlePdfUpload} />
+      
+      {isProcessingFile && (
+        <div className="fixed inset-0 z-[250] bg-black/40 backdrop-blur-sm flex items-center justify-center">
+           <div className="bg-white p-12 rounded-[3rem] shadow-2xl flex flex-col items-center gap-6">
+              <Loader2 className="animate-spin text-[var(--primary)]" size={48} />
+              <p className="font-black text-xs uppercase tracking-[0.2em] text-gray-500">Processing Document...</p>
+           </div>
+        </div>
+      )}
+
       <header className="h-16 bg-white border-b flex justify-between items-center px-6 z-[60] shrink-0 shadow-sm">
-        <div className="flex items-center gap-4 flex-1">
+        <div className="flex items-center gap-4 flex-1 text-left">
           <button onClick={() => navigate('/')} className="p-2.5 hover:bg-gray-50 rounded-xl text-gray-400 hover:text-[var(--primary)] transition-all">
             <ArrowLeft size={22} />
           </button>
@@ -352,9 +511,10 @@ export const ModuleEditor: React.FC = () => {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Toolbar */}
         <aside className="w-24 bg-white border-r flex flex-col items-center py-6 gap-6 shrink-0 z-50 overflow-y-auto custom-scrollbar shadow-sm">
              <ToolButton icon={<Plus size={24} />} label="Add Slide" onClick={() => setShowTemplateModal(true)} />
+             <ToolButton icon={<Copy size={24} />} label="Duplicate" onClick={duplicateSlide} />
+             <ToolButton icon={<FileUp size={24} />} label="Upload PDF" onClick={() => pdfInputRef.current?.click()} />
              <div className="w-12 h-px bg-gray-100" />
              <ToolButton icon={<TypeIcon size={24} />} label="Text" onClick={() => addBlock('text')} />
              <ToolButton icon={<ImageIcon size={24} />} label="Image" onClick={() => addBlock('image')} />
@@ -363,13 +523,9 @@ export const ModuleEditor: React.FC = () => {
              <ToolButton icon={<CheckCircle size={24} />} label="Quiz" onClick={() => setActiveSectionId('quiz')} active={activeSectionId === 'quiz'} />
         </aside>
 
-        {/* Center Workspace */}
-        <main 
-          ref={canvasContainerRef}
-          className="flex-1 bg-gray-50 relative overflow-hidden flex flex-col items-center justify-center p-4 transition-all"
-        >
+        <main ref={canvasContainerRef} className="flex-1 bg-gray-50 relative overflow-hidden flex flex-col items-center justify-center p-4 transition-all">
           {activeSectionId === 'quiz' ? (
-             <div className="bg-white p-12 rounded-[3rem] shadow-2xl w-full max-w-4xl h-fit border border-gray-100 overflow-y-auto max-h-full custom-scrollbar animate-in zoom-in-95 duration-300">
+             <div className="bg-white p-12 rounded-[3rem] shadow-2xl w-full max-w-4xl h-fit border border-gray-100 overflow-y-auto max-h-full custom-scrollbar text-left">
                 <div className="flex justify-between items-center mb-10">
                   <h3 className="text-3xl font-black text-gray-900 tracking-tighter">Knowledge Check</h3>
                   <label className="flex items-center gap-3 cursor-pointer group">
@@ -377,20 +533,17 @@ export const ModuleEditor: React.FC = () => {
                       type="checkbox" 
                       checked={formData.quiz?.enabled} 
                       onChange={e => setFormData(p => ({...p, quiz: {...p.quiz!, enabled: e.target.checked}}))} 
-                      className="accent-[var(--primary)] w-6 h-6 rounded-lg transition-all group-hover:scale-110" 
+                      className="accent-[var(--primary)] w-6 h-6 rounded-lg transition-all" 
                     />
-                    <span className="font-black text-gray-500 group-hover:text-gray-900 uppercase tracking-widest text-xs transition-colors">Enabled</span>
+                    <span className="font-black text-gray-500 uppercase tracking-widest text-xs">Enabled</span>
                   </label>
                 </div>
                 
                 {formData.quiz?.enabled ? (
                   <div className="space-y-8">
                     {formData.quiz.questions.map((q, qi) => (
-                      <div key={q.id} className="bg-gray-50/50 p-8 rounded-[2rem] border border-gray-100 relative group transition-all hover:bg-white hover:shadow-xl">
-                        <button 
-                          onClick={() => setFormData(p => ({...p, quiz: {...p.quiz!, questions: p.quiz!.questions.filter(qu => qu.id !== q.id)}}))} 
-                          className="absolute top-6 right-6 text-gray-300 hover:text-red-500 transition-colors"
-                        >
+                      <div key={q.id} className="bg-gray-50/50 p-8 rounded-[2rem] border border-gray-100 relative group text-left">
+                        <button onClick={() => setFormData(p => ({...p, quiz: {...p.quiz!, questions: p.quiz!.questions.filter(qu => qu.id !== q.id)}}))} className="absolute top-6 right-6 text-gray-300 hover:text-red-500 transition-colors">
                           <Trash2 size={20} />
                         </button>
                         <div className="mb-6">
@@ -398,7 +551,7 @@ export const ModuleEditor: React.FC = () => {
                           <input 
                             value={q.text} 
                             onChange={e => setFormData(p => ({...p, quiz: {...p.quiz!, questions: p.quiz!.questions.map(qu => qu.id === q.id ? {...qu, text: e.target.value} : qu)}}))} 
-                            className="w-full p-4 rounded-2xl border-none ring-1 ring-gray-100 focus:ring-4 focus:ring-orange-100 bg-white font-bold text-lg outline-none transition-all shadow-sm" 
+                            className="w-full p-4 rounded-2xl border-none ring-1 ring-gray-100 focus:ring-4 focus:ring-orange-100 bg-white font-bold text-lg outline-none shadow-sm" 
                             placeholder="Enter question text..." 
                           />
                         </div>
@@ -426,106 +579,55 @@ export const ModuleEditor: React.FC = () => {
                         </div>
                       </div>
                     ))}
-                    <button 
-                      onClick={() => setFormData(p => ({...p, quiz: {...p.quiz!, questions: [...p.quiz!.questions, {id: generateId(), text: '', options: ['','','',''], correctOptionIndex: 0}]}}))} 
-                      className="w-full py-10 border-4 border-dashed border-gray-100 rounded-[3rem] text-gray-300 font-black uppercase tracking-widest hover:text-[var(--primary)] hover:border-[var(--primary)]/30 hover:bg-orange-50 transition-all active:scale-[0.98]"
-                    >
+                    <button onClick={() => setFormData(p => ({...p, quiz: {...p.quiz!, questions: [...p.quiz!.questions, {id: generateId(), text: '', options: ['','','',''], correctOptionIndex: 0}]}}))} className="w-full py-10 border-4 border-dashed border-gray-100 rounded-[3rem] text-gray-300 font-black uppercase tracking-widest hover:text-[var(--primary)] hover:border-[var(--primary)]/30 hover:bg-orange-50 transition-all">
                       + Add Question
                     </button>
                   </div>
                 ) : (
                   <div className="py-32 flex flex-col items-center justify-center text-gray-200 gap-6">
-                    <Award size={80} className="opacity-20" />
-                    <p className="font-black uppercase tracking-[0.4em] text-2xl">Quiz is Disabled</p>
+                    <FileText size={80} className="opacity-20" />
+                    <p className="font-black uppercase tracking-[0.4em] text-2xl text-center">Quiz is Disabled</p>
                   </div>
                 )}
              </div>
           ) : activeSlide ? (
             <div 
-              className="relative shadow-2xl bg-white border border-gray-100 animate-in fade-in zoom-in-95 duration-500"
-              style={{
-                width: `${CANVAS_BASE_WIDTH}px`,
-                height: `${CANVAS_BASE_HEIGHT}px`,
-                transform: `scale(${canvasScale})`,
-                transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-              }}
+              className="relative shadow-2xl bg-white border border-gray-100"
+              style={{ width: `${CANVAS_BASE_WIDTH}px`, height: `${CANVAS_BASE_HEIGHT}px`, transform: `scale(${canvasScale})` }}
             >
-               <div 
-                 ref={canvasRef} 
-                 className="w-full h-full relative overflow-hidden" 
-                 style={{ backgroundColor: activeSlide.backgroundColor || '#ffffff' }}
-                 onMouseDown={() => { setSelectedBlockId(null); setEditingTextId(null); }}
-               >
-                  {showGrid && (
-                    <div 
-                      className="absolute inset-0 pointer-events-none opacity-[0.05]" 
-                      style={{ 
-                        backgroundImage: 'radial-gradient(#000 2px, transparent 2px)', 
-                        backgroundSize: `${GRID_SIZE}% ${GRID_SIZE * (16/9)}%` 
-                      }} 
-                    />
-                  )}
-                  
+               <div ref={canvasRef} className="w-full h-full relative overflow-hidden" style={{ backgroundColor: activeSlide.backgroundColor || '#ffffff' }} onMouseDown={() => { setSelectedBlockId(null); setEditingTextId(null); }}>
+                  {showGrid && <div className="absolute inset-0 pointer-events-none opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#000 2px, transparent 2px)', backgroundSize: `${GRID_SIZE}% ${GRID_SIZE * (16/9)}%` }} />}
                   {activeSlide.blocks?.map(block => (
                     <div 
                       key={block.id} 
                       onMouseDown={(e) => handleMouseDown(e, block.id)} 
                       onDoubleClick={(e) => { e.stopPropagation(); block.type === 'text' && setEditingTextId(block.id); }}
-                      className={`absolute group cursor-move transition-shadow ${selectedBlockId === block.id ? 'ring-2 ring-[var(--primary)] z-50 shadow-2xl' : 'hover:ring-1 hover:ring-gray-300'}`} 
-                      style={{ 
-                        left: `${block.x}%`, 
-                        top: `${block.y}%`, 
-                        width: `${block.width}%`, 
-                        height: `${block.height}%`, 
-                        zIndex: block.zIndex || 1, 
-                        backgroundColor: block.style?.backgroundColor, 
-                        borderRadius: `${block.style?.borderRadius || 0}px`, 
-                        opacity: block.style?.opacity 
-                      }}
+                      className={`absolute group cursor-move ${selectedBlockId === block.id ? 'ring-2 ring-[var(--primary)] z-50 shadow-2xl' : 'hover:ring-1 hover:ring-gray-300'}`} 
+                      style={{ left: `${block.x}%`, top: `${block.y}%`, width: `${block.width}%`, height: `${block.height}%`, zIndex: block.zIndex || 1, backgroundColor: block.style?.backgroundColor, borderRadius: `${block.style?.borderRadius || 0}px`, opacity: block.style?.opacity }}
                     >
-                        <div className="w-full h-full overflow-hidden">
+                        <div className="w-full h-full overflow-hidden text-left">
                             {block.type === 'text' ? (
                               editingTextId === block.id ? (
-                                <div 
-                                  className="h-full bg-white ring-4 ring-[var(--primary)] shadow-2xl overflow-hidden animate-in fade-in duration-200"
-                                  onMouseDown={e => e.stopPropagation()} // CRITICAL: Stop propagation here to prevent canvas close on highlight
-                                >
-                                  <RichTextEditor 
-                                    initialContent={block.content} 
-                                    onChange={html => updateBlock(block.id, { content: html })} 
-                                    onClose={() => setEditingTextId(null)}
-                                  />
+                                <div className="h-full bg-white ring-4 ring-[var(--primary)] shadow-2xl overflow-hidden" onMouseDown={e => e.stopPropagation()}>
+                                  <RichTextEditor initialContent={block.content} onChange={html => updateBlock(block.id, { content: html })} onClose={() => setEditingTextId(null)} />
                                 </div>
                               ) : (
-                                <div className="p-4 prose max-w-none text-inherit pointer-events-none select-none slide-typography" dangerouslySetInnerHTML={{ __html: block.content }} />
+                                <div className="p-4 prose max-w-none pointer-events-none select-none slide-typography" dangerouslySetInnerHTML={{ __html: block.content }} />
                               )
                             ) : block.type === 'image' && block.content ? (
-                                <img src={block.content} className="w-full h-full object-cover pointer-events-none" />
+                                <img src={block.content} className="w-full h-full object-cover pointer-events-none" alt="" />
                             ) : (
                                 <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-200 border-2 border-dashed border-gray-100">
                                     {block.type === 'image' ? <ImageIcon size={48} /> : block.type === 'youtube' ? <Youtube size={48} /> : null}
                                 </div>
                             )}
                         </div>
-
                         {selectedBlockId === block.id && !editingTextId && (
                             <>
                                 {['nw', 'ne', 'sw', 'se'].map(h => (
-                                    <div 
-                                      key={h} 
-                                      className="absolute w-5 h-5 bg-white border-2 border-[var(--primary)] rounded-md shadow-xl z-[60]" 
-                                      style={{ 
-                                        top: h.includes('n') ? -8 : 'auto', 
-                                        bottom: h.includes('s') ? -8 : 'auto', 
-                                        left: h.includes('w') ? -8 : 'auto', 
-                                        right: h.includes('e') ? -8 : 'auto', 
-                                        cursor: `${h}-resize` 
-                                      }} 
-                                      onMouseDown={e => handleMouseDown(e, block.id, h)} 
-                                    />
+                                    <div key={h} className="absolute w-5 h-5 bg-white border-2 border-[var(--primary)] rounded-md shadow-xl z-[60]" style={{ top: h.includes('n') ? -8 : 'auto', bottom: h.includes('s') ? -8 : 'auto', left: h.includes('w') ? -8 : 'auto', right: h.includes('e') ? -8 : 'auto', cursor: `${h}-resize` }} onMouseDown={e => handleMouseDown(e, block.id, h)} />
                                 ))}
-                                {/* Fast Actions Bar */}
-                                <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white rounded-2xl flex items-center gap-2 p-1.5 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300">
+                                <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white rounded-2xl flex items-center gap-2 p-1.5 shadow-2xl">
                                    <button onClick={(e) => {e.stopPropagation(); updateBlock(block.id, { zIndex: (block.zIndex || 1) + 1 });}} className="p-2 hover:bg-white/20 rounded-xl transition-colors" title="Layer Up"><Layers size={16} /></button>
                                    <div className="w-px h-4 bg-white/10" />
                                    <button onClick={(e) => {e.stopPropagation(); deleteBlock(block.id);}} className="p-2 hover:bg-red-500 rounded-xl text-red-400 hover:text-white transition-all" title="Remove"><Trash2 size={16} /></button>
@@ -540,15 +642,14 @@ export const ModuleEditor: React.FC = () => {
           ) : (
             <div className="flex flex-col items-center gap-6 text-gray-300">
               <Loader2 size={48} className="animate-spin text-gray-200" />
-              <p className="font-black uppercase tracking-widest text-sm">Initializing Workspace...</p>
+              <p className="font-black uppercase tracking-widest text-sm text-center">Initializing Workspace...</p>
             </div>
           )}
         </main>
 
-        {/* Right Sidebar */}
         <aside className="w-80 bg-white border-l p-8 shrink-0 z-50 text-left overflow-y-auto custom-scrollbar shadow-sm">
           {editingTextId ? (
-            <div className="space-y-8 animate-in slide-in-from-right-4 duration-400">
+            <div className="space-y-8 text-left">
                <div className="flex items-center gap-3 text-[var(--primary)] mb-8">
                   <TypeIcon size={22} strokeWidth={3} />
                   <h3 className="text-sm font-black uppercase tracking-[0.2em]">Text Formatting</h3>
@@ -556,7 +657,7 @@ export const ModuleEditor: React.FC = () => {
               <TextToolbar onClose={() => setEditingTextId(null)} />
             </div>
           ) : selectedBlockId && activeSlide?.blocks?.find(b => b.id === selectedBlockId) ? (
-             <div className="space-y-8 animate-in slide-in-from-right-4 duration-400">
+             <div className="space-y-8 text-left">
                 <div className="flex items-center gap-3 text-[var(--primary)] mb-8">
                     <Settings2 size={22} strokeWidth={3} />
                     <h3 className="text-sm font-black uppercase tracking-[0.2em]">Properties</h3>
@@ -568,184 +669,124 @@ export const ModuleEditor: React.FC = () => {
                         <input 
                           type="text" 
                           value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.content} 
-                          onChange={e => updateBlock(selectedBlockId, { content: e.target.value })} 
+                          onChange={e => updateBlock(selectedBlockId!, { content: e.target.value })} 
                           className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs outline-none focus:ring-4 focus:ring-orange-100 transition-all font-medium" 
                           placeholder="Paste image URL here..." 
                         />
                     </div>
                 )}
 
-                <div className="pt-8 border-t border-gray-50">
-                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-6 block">Appearance</label>
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-gray-500">Fill Color</span>
-                            <input 
-                              type="color" 
-                              value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.backgroundColor || '#ffffff'} 
-                              onChange={e => updateBlock(selectedBlockId, { style: { ...activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style, backgroundColor: e.target.value } })} 
-                              className="w-12 h-9 rounded-lg cursor-pointer border-2 border-gray-50 p-0" 
-                            />
+                <div className="pt-8 border-t border-gray-50 text-left space-y-8">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Appearance</label>
+                    <ColorInput 
+                      label="Fill Color" 
+                      value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.backgroundColor || '#ffffff'} 
+                      onChange={v => updateBlock(selectedBlockId!, { style: { ...activeSlide?.blocks?.find(b => b.id === selectedBlockId!)?.style, backgroundColor: v } })} 
+                    />
+                    <div className="space-y-3">
+                        <div className="flex justify-between text-xs font-bold text-gray-500">
+                            <span>Rounded Corners</span>
+                            <span>{activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.borderRadius || 0}px</span>
                         </div>
-                        <div className="space-y-3">
-                            <div className="flex justify-between text-xs font-bold text-gray-500">
-                                <span>Rounded Corners</span>
-                                <span>{activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.borderRadius || 0}px</span>
-                            </div>
-                            <input 
-                              type="range" min="0" max="100" 
-                              value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.borderRadius || 0} 
-                              onChange={e => updateBlock(selectedBlockId, { style: { ...activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style, borderRadius: parseInt(e.target.value) } })} 
-                              className="w-full accent-[var(--primary)]" 
-                            />
-                        </div>
-                        <div className="space-y-3">
-                             <div className="flex justify-between text-xs font-bold text-gray-500">
-                                <span>Transparency</span>
-                                <span>{Math.round((activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.opacity ?? 1) * 100)}%</span>
-                            </div>
-                            <input 
-                              type="range" min="0" max="1" step="0.01" 
-                              value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.opacity ?? 1} 
-                              onChange={e => updateBlock(selectedBlockId, { style: { ...activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style, opacity: parseFloat(e.target.value) } })} 
-                              className="w-full accent-[var(--primary)]" 
-                            />
-                        </div>
+                        <input type="range" min="0" max="100" value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.borderRadius || 0} onChange={e => updateBlock(selectedBlockId!, { style: { ...activeSlide?.blocks?.find(b => b.id === selectedBlockId!)?.style, borderRadius: parseInt(e.target.value) } })} className="w-full accent-[var(--primary)]" />
                     </div>
                 </div>
 
-                <button 
-                  onClick={() => deleteBlock(selectedBlockId)} 
-                  className="w-full py-5 text-red-500 font-black text-xs uppercase tracking-widest bg-red-50 rounded-[2rem] mt-12 hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100"
-                >
+                <button onClick={() => deleteBlock(selectedBlockId!)} className="w-full py-5 text-red-500 font-black text-xs uppercase tracking-widest bg-red-50 rounded-[2rem] mt-12 hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100">
                   Remove Element
                 </button>
              </div>
           ) : (
-             <div className="space-y-10 animate-in slide-in-from-right-4 duration-400">
+             <div className="space-y-10 text-left">
                 <div className="flex items-center gap-3 text-gray-300 mb-8">
                     <MousePointer2 size={22} strokeWidth={3} />
                     <h3 className="text-sm font-black uppercase tracking-[0.2em]">Editor</h3>
                 </div>
-                <div className="grid grid-cols-1 gap-4">
-                    <button 
-                      onClick={() => setShowGrid(!showGrid)} 
-                      className={`py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 border-2 transition-all ${showGrid ? 'bg-orange-50 text-[var(--primary)] border-[var(--primary)]/30 shadow-lg shadow-orange-100' : 'bg-white text-gray-400 border-gray-100'}`}
-                    >
-                      <Grid3X3 size={18} /> {showGrid ? 'Hide Grid' : 'Show Grid'}
-                    </button>
-                    <button 
-                      onClick={() => setSnapToGrid(!snapToGrid)} 
-                      className={`py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 border-2 transition-all ${snapToGrid ? 'bg-orange-50 text-[var(--primary)] border-[var(--primary)]/30 shadow-lg shadow-orange-100' : 'bg-white text-gray-400 border-gray-100'}`}
-                    >
-                      <Hash size={18} /> {snapToGrid ? 'Snapping On' : 'Snapping Off'}
-                    </button>
-                </div>
-                <div className="pt-10 border-t border-gray-50">
-                  <h4 className="text-[10px] font-black text-gray-400 uppercase mb-8 tracking-[0.2em]">Footer Branding</h4>
-                  <div className="space-y-6">
-                    <div>
-                      <label className="text-[10px] text-gray-400 font-black uppercase mb-3 block tracking-widest">Left Branding</label>
-                      <input 
-                        value={formData.footerTextLeft} 
-                        onChange={e => setFormData({...formData, footerTextLeft: e.target.value})} 
-                        className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-orange-100 transition-all" 
-                      />
+
+                <div className="space-y-8 text-left">
+                  <div>
+                    <div className="flex items-center gap-2 mb-4">
+                       <ImagePlus size={16} className="text-[var(--primary)]" />
+                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Cover Image</label>
                     </div>
-                    <div>
-                      <label className="text-[10px] text-gray-400 font-black uppercase mb-3 block tracking-widest">Right Branding</label>
-                      <input 
-                        value={formData.footerTextRight} 
-                        onChange={e => setFormData({...formData, footerTextRight: e.target.value})} 
-                        className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-orange-100 transition-all" 
-                      />
+                    {formData.thumbnail ? (
+                      <div className="relative group mb-3 aspect-video rounded-2xl overflow-hidden border-2 border-orange-100 shadow-lg">
+                        <img src={formData.thumbnail} className="w-full h-full object-cover" alt="Cover preview" />
+                        <button onClick={() => setFormData({ ...formData, thumbnail: '' })} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-white font-black text-[10px] uppercase tracking-widest">Clear Custom Image</button>
+                      </div>
+                    ) : (
+                      <div className="mb-3 aspect-video rounded-2xl bg-gray-50 border-2 border-dashed border-gray-100 flex items-center justify-center text-gray-300 text-[10px] font-black uppercase px-6 text-center leading-relaxed">Using automatic slide thumbnail</div>
+                    )}
+                    <div className="flex flex-col gap-3">
+                        <button onClick={() => fileInputRef.current?.click()} className="w-full py-4 bg-orange-50 text-[var(--primary)] rounded-2xl border-2 border-[var(--primary)]/10 flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest hover:bg-orange-100 transition-all">
+                           <Upload size={16} /> Upload Image File
+                        </button>
                     </div>
                   </div>
+                </div>
+
+                <div className="pt-8 border-t border-gray-50 space-y-6 text-left">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Slide Options</label>
+                    <ColorInput 
+                      label="Background" 
+                      value={activeSlide?.backgroundColor || '#ffffff'} 
+                      onChange={v => setFormData(p => ({...p, slides: p.slides?.map(s => s.id === activeSectionId ? {...s, backgroundColor: v} : s)}))} 
+                    />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 pt-8 border-t border-gray-50 text-left">
+                    <button onClick={() => setShowGrid(!showGrid)} className={`py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 border-2 transition-all ${showGrid ? 'bg-orange-50 text-[var(--primary)] border-[var(--primary)]/30 shadow-lg shadow-orange-100' : 'bg-white text-gray-400 border-gray-100'}`}>
+                      <Grid3X3 size={18} /> {showGrid ? 'Hide Grid' : 'Show Grid'}
+                    </button>
+                    <button onClick={() => setSnapToGrid(!snapToGrid)} className={`py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 border-2 transition-all ${snapToGrid ? 'bg-orange-50 text-[var(--primary)] border-[var(--primary)]/30 shadow-lg shadow-orange-100' : 'bg-white text-gray-400 border-gray-100'}`}>
+                      <Hash size={18} /> {snapToGrid ? 'Snapping On' : 'Snapping Off'}
+                    </button>
                 </div>
              </div>
           )}
         </aside>
       </div>
 
-      {/* Bottom Slide Tray */}
       <footer className="h-48 bg-white border-t flex items-center px-10 gap-10 overflow-x-auto shrink-0 z-[60] shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.08)] custom-scrollbar">
           {formData.slides?.map((slide, idx) => (
-             <div 
-               key={slide.id} 
-               onClick={() => setActiveSectionId(slide.id)} 
-               className={`w-64 h-36 border-[4px] rounded-[2.5rem] cursor-pointer relative shrink-0 overflow-hidden group transition-all duration-500 ${activeSectionId === slide.id ? 'border-[var(--primary)] shadow-2xl scale-110 -translate-y-2' : 'border-gray-50 opacity-60 hover:opacity-100'}`}
-             >
+             <div key={slide.id} onClick={() => setActiveSectionId(slide.id)} className={`w-64 h-36 border-[4px] rounded-[2.5rem] cursor-pointer relative shrink-0 overflow-hidden group transition-all duration-500 ${activeSectionId === slide.id ? 'border-[var(--primary)] shadow-2xl scale-110 -translate-y-2' : 'border-gray-50 opacity-60 hover:opacity-100'}`}>
                 <SlideThumbnail slide={slide} footerTextLeft={formData.footerTextLeft} footerTextRight={formData.footerTextRight} />
                 <div className="absolute top-4 left-4 bg-black/60 text-white text-[10px] font-black px-4 py-1.5 rounded-xl backdrop-blur-md z-10 tracking-[0.2em]">{idx + 1}</div>
-                
-                {formData.thumbnailSlideId === slide.id && (
-                  <div className="absolute top-4 right-4 bg-[var(--primary)] text-white p-2.5 rounded-full shadow-2xl z-20 ring-4 ring-white" title="Primary Cover Slide">
-                    <Star size={14} fill="currentColor" />
-                  </div>
-                )}
-
                 <div className="absolute bottom-4 left-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 z-30">
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); setFormData(p => ({ ...p, thumbnailSlideId: slide.id })); }} 
-                        className={`flex-1 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-2xl border-2 transition-all ${formData.thumbnailSlideId === slide.id ? 'bg-[var(--primary)] text-white border-transparent' : 'bg-white text-gray-900 border-gray-100 hover:bg-orange-50'}`}
-                    >
-                        {formData.thumbnailSlideId === slide.id ? 'COVER' : 'SET COVER'}
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); deleteSlide(slide.id); }} className="bg-white rounded-2xl p-2.5 shadow-2xl border-2 border-gray-50 text-red-500 hover:bg-red-500 hover:text-white transition-all">
-                      <Trash size={18} />
+                    <button onClick={(e) => { e.stopPropagation(); deleteSlide(slide.id); }} className="w-full bg-white rounded-2xl py-2.5 shadow-2xl border-2 border-gray-50 text-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2">
+                      <Trash size={18} /> Delete
                     </button>
                 </div>
              </div>
           ))}
-          <button 
-            onClick={() => setShowTemplateModal(true)} 
-            className="w-64 h-36 border-4 border-dashed border-gray-100 rounded-[2.5rem] flex flex-col items-center justify-center text-gray-300 hover:text-[var(--primary)] hover:border-[var(--primary)]/30 hover:bg-orange-50 transition-all shrink-0 font-black uppercase text-xs tracking-[0.3em] gap-4 group"
-          >
-            <div className="p-4 bg-gray-50 rounded-2xl group-hover:bg-white group-hover:shadow-xl transition-all">
-              <Plus size={36} strokeWidth={3} />
-            </div>
+          <button onClick={() => setShowTemplateModal(true)} className="w-64 h-36 border-4 border-dashed border-gray-100 rounded-[2.5rem] flex flex-col items-center justify-center text-gray-300 hover:text-[var(--primary)] hover:border-[var(--primary)]/30 hover:bg-orange-50 transition-all shrink-0 font-black uppercase text-xs tracking-[0.3em] gap-4 group">
+            <div className="p-4 bg-gray-50 rounded-2xl group-hover:bg-white group-hover:shadow-xl transition-all"><Plus size={36} strokeWidth={3} /></div>
             New Slide
           </button>
       </footer>
 
-      {/* Template Selection Modal */}
       {showTemplateModal && (
-        <div className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-2xl flex items-center justify-center p-8 animate-in fade-in duration-500">
-          <div className="bg-white rounded-[4rem] shadow-2xl w-full max-w-6xl p-20 animate-in zoom-in-95 duration-500 relative overflow-hidden">
+        <div className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-2xl flex items-center justify-center p-8">
+          <div className="bg-white rounded-[4rem] shadow-2xl w-full max-w-6xl p-20 relative overflow-hidden text-left">
              <div className="absolute top-0 right-0 w-[40rem] h-[40rem] bg-orange-50 rounded-full -mr-[20rem] -mt-[20rem] blur-[10rem] opacity-40"></div>
-             
              <div className="flex justify-between items-center mb-16 relative z-10">
                 <div>
                   <h3 className="text-5xl font-black text-gray-900 tracking-tighter mb-2">Select Layout</h3>
                   <p className="text-gray-400 font-medium text-lg">Choose a starting point for your new slide.</p>
                 </div>
-                <button onClick={() => setShowTemplateModal(false)} className="p-5 bg-gray-50 hover:bg-red-50 hover:text-red-500 rounded-full transition-all">
-                  <X size={40} />
-                </button>
+                <button onClick={() => setShowTemplateModal(false)} className="p-5 bg-gray-50 hover:bg-red-50 hover:text-red-500 rounded-full transition-all"><X size={40} /></button>
              </div>
-
              <div className="grid grid-cols-1 md:grid-cols-4 gap-8 relative z-10">
                 {SLIDE_TEMPLATES.map((t, i) => (
-                    <button 
-                        key={i} 
-                        onClick={() => addSlide(t)} 
-                        className="p-10 border-4 border-gray-50 rounded-[3rem] text-left hover:border-[var(--primary)]/30 hover:bg-orange-50/20 transition-all group relative h-full flex flex-col"
-                    >
-                        <div className="w-20 h-20 bg-white rounded-[1.5rem] shadow-xl flex items-center justify-center text-gray-200 group-hover:text-[var(--primary)] mb-10 transition-colors">
-                          <LayoutTemplate size={40} />
-                        </div>
+                    <button key={i} onClick={() => addSlide(t)} className="p-10 border-4 border-gray-50 rounded-[3rem] text-left hover:border-[var(--primary)]/30 hover:bg-orange-50/20 transition-all group relative h-full flex flex-col">
+                        <div className="w-20 h-20 bg-white rounded-[1.5rem] shadow-xl flex items-center justify-center text-gray-200 group-hover:text-[var(--primary)] mb-10 transition-colors"><LayoutTemplate size={40} /></div>
                         <div className="font-black text-2xl text-gray-900 mb-4 group-hover:text-[var(--primary)] transition-colors">{t.label}</div>
                         <div className="text-sm text-gray-400 font-medium leading-relaxed flex-1">{t.description}</div>
-                        <ChevronRight className="mt-6 text-gray-200 group-hover:text-[var(--primary)] transition-colors" />
+                        <ChevronRight className="mt-6 text-gray-200 group-hover:text-[var(--primary)]" />
                     </button>
                 ))}
-                <button 
-                    onClick={() => addSlide('blank')} 
-                    className="p-10 border-4 border-dashed border-gray-100 rounded-[3rem] flex flex-col items-center justify-center text-gray-300 font-black uppercase tracking-[0.2em] hover:border-[var(--primary)]/40 hover:bg-orange-50/20 hover:text-[var(--primary)] transition-all gap-6 group"
-                >
-                    <div className="p-8 bg-gray-50 rounded-3xl group-hover:bg-white group-hover:shadow-2xl transition-all">
-                      <Plus size={64} strokeWidth={3} />
-                    </div>
+                <button onClick={() => addSlide('blank')} className="p-10 border-4 border-dashed border-gray-100 rounded-[3rem] flex flex-col items-center justify-center text-gray-300 font-black uppercase tracking-[0.2em] hover:border-[var(--primary)]/40 hover:bg-orange-50/20 hover:text-[var(--primary)] transition-all gap-6 group">
+                    <div className="p-8 bg-gray-50 rounded-3xl group-hover:bg-white group-hover:shadow-2xl transition-all"><Plus size={64} strokeWidth={3} /></div>
                     Blank Slide
                 </button>
              </div>
@@ -761,13 +802,6 @@ const ToolButton = ({ icon, label, onClick, active }: any) => (
      <div className={`w-14 h-14 rounded-2xl border-2 flex items-center justify-center transition-all ${active ? 'bg-white border-[var(--primary)] text-[var(--primary)] shadow-2xl shadow-orange-100' : 'bg-white border-gray-50 text-gray-400 group-hover:border-gray-200 group-hover:text-gray-600 shadow-sm'}`}>
       {icon}
      </div>
-     <span className={`text-[10px] font-black uppercase tracking-widest ${active ? 'text-[var(--primary)]' : 'text-gray-400 group-hover:text-gray-600'}`}>{label}</span>
+     <span className={`text-[10px] font-black uppercase tracking-widest ${active ? 'text-[var(--primary)]' : 'text-gray-400 group-hover:text-gray-600'} text-center truncate w-full`}>{label}</span>
   </button>
-);
-
-const Award = ({ size, className }: any) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <circle cx="12" cy="8" r="6" />
-    <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
-  </svg>
 );
