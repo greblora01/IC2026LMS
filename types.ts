@@ -41,7 +41,7 @@ export interface SlideMedia {
   name?: string;
 }
 
-export type BlockType = 'text' | 'image' | 'video' | 'youtube' | 'shape';
+export type BlockType = 'text' | 'image' | 'video' | 'youtube' | 'shape' | 'plain-text';
 
 export interface ElementStyle {
   backgroundColor?: string;
@@ -52,12 +52,17 @@ export interface ElementStyle {
   padding?: number; // px
   color?: string; // Text color
   shadow?: boolean;
+  fontSize?: number;
+  fontWeight?: string;
+  fontStyle?: string;
+  textDecoration?: string;
+  fontFamily?: string;
 }
 
 export interface SlideBlock {
   id: string;
   type: BlockType;
-  content: string; // HTML for text, URL for media
+  content: string; // HTML for text, raw string for plain-text, URL for media
   
   // Positioning (Percentages 0-100)
   x?: number;
@@ -93,6 +98,7 @@ export interface Module {
   title: string;
   description: string;
   thumbnail?: string;
+  thumbnailSlideId?: string; // ID of the slide used for the card preview
   certificateTitle?: string;
   certificateMessage?: string;
   footerTextLeft?: string;

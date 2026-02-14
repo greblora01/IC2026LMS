@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Module, Theme } from '../types';
 import { DEFAULT_THEME, MOCK_MODULES } from '../constants';
@@ -15,6 +16,7 @@ interface AppContextType {
   deleteModule: (id: string) => Promise<void>;
   getModule: (id: string) => Module | undefined;
   incrementModuleView: (id: string) => Promise<void>;
+  incrementModuleCompletion: (id: string) => Promise<void>;
   resetToDefaults: () => Promise<void>;
 }
 
@@ -39,7 +41,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (db) {
       const unsubscribe = onSnapshot(collection(db, 'modules'), (snapshot) => {
         const fetchedModules = snapshot.docs.map(doc => {
-          // Ensure we only store plain object data
           const data = doc.data();
           return { ...data } as Module;
         });
@@ -48,7 +49,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsLoading(false);
       }, (error) => {
         console.error("Firebase connection error or timeout:", error);
-        // On error, try to load from local storage if available
         const saved = localStorage.getItem('lms_modules');
         if (saved) setModules(JSON.parse(saved));
         setIsLoading(false);
@@ -142,7 +142,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } else {
       const newModules = modules.map(m => 
         m.id === id 
-          ? { ...m, stats: { ...m.stats, views: m.stats.views + 1 } } 
+          ? { ...m, stats: { ...m.stats, views: (m.stats.views || 0) + 1 } } 
+          : m
+      );
+      saveToLocalStorage(newModules);
+    }
+  };
+
+  const incrementModuleCompletion = async (id: string) => {
+    if (db) {
+      try {
+        const moduleRef = doc(db, 'modules', id);
+        await updateDoc(moduleRef, {
+          'stats.completions': increment(1)
+        });
+      } catch (error) {
+        console.error("Error updating completions:", error);
+      }
+    } else {
+      const newModules = modules.map(m => 
+        m.id === id 
+          ? { ...m, stats: { ...m.stats, completions: (m.stats.completions || 0) + 1 } } 
           : m
       );
       saveToLocalStorage(newModules);
@@ -180,6 +200,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       deleteModule,
       getModule,
       incrementModuleView,
+      incrementModuleCompletion,
       resetToDefaults
     }}>
       {children}

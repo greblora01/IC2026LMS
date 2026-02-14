@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -26,7 +27,6 @@ const SlideFooter: React.FC<{ leftText?: string; rightText?: string, className?:
   </div>
 );
 
-// Desktop: Renders blocks exactly as positioned (Absolute) within a responsive coordinate system
 const DesktopCanvasRenderer: React.FC<{ block: SlideBlock; textScale: number }> = ({ block, textScale }) => {
    const style: React.CSSProperties = {
      left: `${block.x}%`,
@@ -42,8 +42,6 @@ const DesktopCanvasRenderer: React.FC<{ block: SlideBlock; textScale: number }> 
      border: block.style?.borderWidth ? `${block.style.borderWidth}px solid ${block.style.borderColor || '#000'}` : 'none',
    };
 
-   // We scale the text using viewport units or percentages. 
-   // vh units are good for keeping text relative to screen height in a responsive full-screen feel.
    const contentStyle: React.CSSProperties = {
        fontSize: `${textScale}em`, 
        height: '100%',
@@ -58,7 +56,6 @@ const DesktopCanvasRenderer: React.FC<{ block: SlideBlock; textScale: number }> 
         {block.type === 'text' && (
            <div 
             style={contentStyle} 
-            // Added overflow-y-auto and scrollbar hiding to allow reading without visual clutter if text overflows
             className="prose max-w-none p-2 h-full w-full slide-typography overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]" 
             dangerouslySetInnerHTML={{ __html: block.content }} 
            />
@@ -79,7 +76,6 @@ const DesktopCanvasRenderer: React.FC<{ block: SlideBlock; textScale: number }> 
    );
 };
 
-// Mobile: Renders blocks in a vertical stack (Relative)
 const MobileStackRenderer: React.FC<{ block: SlideBlock; textScale: number }> = ({ block, textScale }) => {
     const style: React.CSSProperties = {
       backgroundColor: block.style?.backgroundColor,
@@ -91,14 +87,13 @@ const MobileStackRenderer: React.FC<{ block: SlideBlock; textScale: number }> = 
 
     const textStyle: React.CSSProperties = {
         zoom: textScale,
-        fontSize: '16px' // Adjusted to 16px base for better "one screen" fit by default
+        fontSize: '16px' 
     };
  
     return (
       <div className="w-full mb-6 last:mb-0 relative" style={style}>
          {block.type === 'text' && (
             <div 
-                // Removed overflow-hidden here to allow long text to scroll naturally with the page
                 className="w-full prose prose-sm max-w-none text-[var(--text-color)] slide-typography" 
                 style={textStyle}
                 dangerouslySetInnerHTML={{ __html: block.content }} 
@@ -125,7 +120,7 @@ const MobileStackRenderer: React.FC<{ block: SlideBlock; textScale: number }> = 
 export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExitPreview }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getModule, incrementModuleView, isLoading: contextLoading } = useAppContext();
+  const { getModule, incrementModuleView, incrementModuleCompletion, isLoading: contextLoading } = useAppContext();
   
   const [module, setModule] = useState<Module | undefined>(previewModule);
   const [loading, setLoading] = useState(!previewModule);
@@ -138,13 +133,10 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const [showCertificate, setShowCertificate] = useState(false);
   const [userName, setUserName] = useState('');
   
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Default open on desktop
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024); // Breakpoint for Sidebar
-  
-  // Font Size Scaling State - Default adjusted to 0.8 (80%) per request
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true); 
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024); 
   const [textScale, setTextScale] = useState(0.8);
 
-  // Handle Resize for Responsive Logic
   useEffect(() => {
     const handleResize = () => {
         const mobile = window.innerWidth < 1024;
@@ -154,11 +146,10 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     };
     
     window.addEventListener('resize', handleResize);
-    handleResize(); // Init
+    handleResize(); 
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Load Module Data
   useEffect(() => {
     if (previewModule) {
       setModule(previewModule);
@@ -192,6 +183,16 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     }
   }, [id, getModule, previewModule, contextLoading, incrementModuleView, loading]);
 
+  // Completion Tracking Logic
+  useEffect(() => {
+    if (showCertificate && module?.id) {
+      if (!sessionStorage.getItem(`completed_${module.id}`)) {
+        incrementModuleCompletion(module.id);
+        sessionStorage.setItem(`completed_${module.id}`, 'true');
+      }
+    }
+  }, [showCertificate, module?.id, incrementModuleCompletion]);
+
   if (loading) return <div className="h-screen flex items-center justify-center bg-[var(--bg-color)]"><Loader2 className="animate-spin text-[var(--primary)]" size={48} /></div>;
   
   if (error || !module) return (
@@ -208,7 +209,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   const maxIndex = module.quiz?.enabled ? totalSlides : totalSlides - 1;
   const isQuizStep = currentSlideIndex === totalSlides;
 
-  // --- Sorting Logic for Mobile Stack ---
   const getSortedBlocks = (slide: Slide) => {
     if (!slide.blocks) return [];
     return [...slide.blocks].sort((a, b) => {
@@ -223,7 +223,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
        setShowCertificate(true);
     } else if (currentSlideIndex < maxIndex) {
       setCurrentSlideIndex(prev => prev + 1);
-      // Only auto-close on mobile
       if (isMobile) setIsSidebarOpen(false);
     }
   };
@@ -241,8 +240,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
       if (isMobile) setIsSidebarOpen(false);
   };
 
-  // --- Renderers ---
-
   const renderSidebar = () => {
     const sidebarClasses = isMobile 
         ? `fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 ease-in-out shadow-2xl ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
@@ -250,7 +247,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
     return (
     <>
-        {/* Backdrop for mobile */}
         {isSidebarOpen && isMobile && (
             <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setIsSidebarOpen(false)} />
         )}
@@ -261,8 +257,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
                 {isMobile && <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-gray-200 rounded text-gray-500"><X size={20} /></button>}
             </div>
             
-            {/* Font Control removed from Sidebar as requested */}
-
             <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
                 <button 
                     onClick={() => jumpToSlide(-1)}
@@ -297,7 +291,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
                     </button>
                 )}
             </div>
-            {/* Progress Bar in Sidebar */}
             <div className="p-4 border-t border-gray-100 bg-gray-50 shrink-0">
                 <div className="text-xs text-gray-500 mb-1 flex justify-between">
                     <span>Progress</span>
@@ -315,7 +308,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
   )};
 
   const renderContent = () => {
-    // --- Certificate View ---
     if (showCertificate) return (
        <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-white rounded-xl shadow-sm border border-gray-200 m-4 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <Award size={64} className="text-[var(--primary)] mb-4" />
@@ -329,7 +321,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
        </div>
     );
 
-    // --- Introduction View ---
     if (currentSlideIndex === -1) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center p-6 md:p-12 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -345,7 +336,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
       );
     }
 
-    // --- Quiz View ---
     if (isQuizStep) {
        return (
           <div className="max-w-3xl mx-auto p-6 md:p-10 text-left animate-in fade-in slide-in-from-right-4 duration-300 pb-24 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -383,14 +373,11 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
        );
     }
 
-    // --- Slide Content View ---
     const slide = slides[currentSlideIndex];
     if (!slide) return <div className="p-8 text-center text-red-500">Error: Slide not found.</div>;
     
-    // Canvas Layout Logic
     if (slide.layout === 'canvas') {
         if (isMobile) {
-            // -- MOBILE RESPONSIVE MODE (Stack) --
             const sortedBlocks = getSortedBlocks(slide);
             
             return (
@@ -407,25 +394,16 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
                             <MobileStackRenderer key={block.id} block={block} textScale={textScale} />
                         ))}
                     </div>
-                    {/* Fixed Footer for Mobile - Stays at bottom of content flow, or could be sticky if desired, but user asked for simple stack */}
                     <div className="mt-auto">
                         <SlideFooter leftText={module.footerTextLeft} rightText={module.footerTextRight} className="h-12" />
                     </div>
                 </div>
             );
         } else {
-            // -- DESKTOP LIQUID LAYOUT MODE --
-            // Resizes to 100% width and height of container
-            
             return (
                 <div 
                     className="w-full h-full bg-gray-200 relative overflow-hidden"
                 >
-                    {/* 
-                       Global Typography Override for Desktop 
-                       Use vh-based sizes so text scales with screen height primarily, which feels most natural for slides.
-                       Multiplied by textScale to allow Zoom controls.
-                    */}
                     <style>{`
                        .slide-typography h1 { font-size: ${4.5 * textScale}vh; line-height: 1.1; margin-bottom: 0.5em; font-weight: 700; }
                        .slide-typography h2 { font-size: ${3.5 * textScale}vh; line-height: 1.2; margin-bottom: 0.5em; font-weight: 700; }
@@ -451,7 +429,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
         }
     }
 
-    // Legacy Layout Support
     return (
        <div className="max-w-4xl mx-auto p-6 md:p-10 min-h-[60vh] animate-in fade-in slide-in-from-right-4 duration-300 pb-24 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <article className="prose prose-lg text-left" dangerouslySetInnerHTML={{__html: slide.content}} />
@@ -463,7 +440,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
-       {/* Top Header */}
        <div className="h-16 bg-white border-b flex items-center justify-between px-4 md:px-6 z-40 shadow-sm shrink-0">
           <div className="flex items-center gap-3 md:gap-4 overflow-hidden">
               <button 
@@ -489,20 +465,13 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
           </button>
        </div>
 
-       {/* Flex Container for Body */}
        <div className="flex flex-1 overflow-hidden relative">
-           
-           {/* Sidebar Component */}
            {renderSidebar()}
-
-           {/* Main Content */}
            <main className="flex-1 flex flex-col min-w-0 bg-gray-100 h-full relative">
-              {/* Content Wrapper - 90% space */}
               <div className="flex-1 w-full overflow-hidden relative flex flex-col">
                   {renderContent()}
               </div>
               
-              {/* Sticky Bottom Navigation - 10% space */}
               {hasFooter && (
                 <div className="h-[10vh] min-h-[60px] max-h-[100px] border-t bg-white/95 backdrop-blur-sm px-[10px] flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-30 shrink-0">
                     <button 
@@ -512,7 +481,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
                         <ArrowLeft size={18} /> <span className="hidden md:inline">Previous</span>
                     </button>
                     
-                    {/* Font Size Controls in Footer */}
                     <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 mx-2">
                         <Type size={14} className="text-gray-400 ml-1 hidden sm:block"/>
                         <button 

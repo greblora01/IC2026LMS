@@ -1,212 +1,227 @@
+
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, ExternalLink, BarChart2, BookOpen, Share2, Eye, Image as ImageIcon, Download, Cloud, HardDrive, UploadCloud, X, RefreshCw } from 'lucide-react';
+import { 
+  Plus, BarChart2, BookOpen, Eye, 
+  Cloud, HardDrive, Settings, PlayCircle, Trash2, X, Share2
+} from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
-import { Module } from '../types';
+import { Module, Slide } from '../types';
+
+// Helper component to render a slide preview
+const SlidePreview: React.FC<{ slide: Slide; footerLeft?: string; footerRight?: string }> = ({ slide, footerLeft, footerRight }) => {
+  const BASE_WIDTH = 960;
+  const BASE_HEIGHT = 540;
+  
+  return (
+    <div className="w-full h-full relative overflow-hidden bg-white">
+      <div 
+        style={{
+          width: `${BASE_WIDTH}px`,
+          height: `${BASE_HEIGHT}px`,
+          transform: `scale(0.8)`, // Increased scale for larger preview detail
+          transformOrigin: 'top left',
+          backgroundColor: slide.backgroundColor || '#ffffff',
+          backgroundImage: slide.backgroundImage ? `url(${slide.backgroundImage})` : undefined,
+          backgroundSize: 'cover'
+        }}
+        className="absolute top-0 left-0 pointer-events-none"
+      >
+         {slide.blocks?.map(block => (
+            <div
+              key={block.id}
+              style={{
+                position: 'absolute',
+                left: `${block.x}%`,
+                top: `${block.y}%`,
+                width: `${block.width}%`,
+                height: `${block.height}%`,
+                zIndex: block.zIndex || 1,
+                transform: block.rotation ? `rotate(${block.rotation}deg)` : 'none',
+                backgroundColor: block.style?.backgroundColor,
+                borderRadius: block.style?.borderRadius ? `${block.style.borderRadius * 3}px` : undefined,
+                opacity: block.style?.opacity,
+                border: block.style?.borderWidth ? `${block.style.borderWidth * 3}px solid ${block.style.borderColor || '#000'}` : 'none',
+                color: block.style?.color || 'inherit',
+                fontSize: block.style?.fontSize ? `${block.style.fontSize * 3}px` : '42px',
+                fontWeight: block.style?.fontWeight || 'normal',
+                fontStyle: block.style?.fontStyle || 'normal',
+                textDecoration: block.style?.textDecoration || 'none',
+                fontFamily: block.style?.fontFamily || 'inherit'
+              }}
+              className="overflow-hidden"
+            >
+               {block.type === 'text' && (
+                  <div 
+                    className="w-full h-full p-2" 
+                    dangerouslySetInnerHTML={{ __html: block.content }} 
+                  />
+               )}
+               {block.type === 'plain-text' && (
+                  <div className="w-full h-full p-2 whitespace-pre-wrap">{block.content}</div>
+               )}
+               {block.type === 'image' && block.content && (
+                  <img src={block.content} className="w-full h-full object-cover" alt="" />
+               )}
+            </div>
+         ))}
+         
+         <div className="absolute bottom-0 left-0 right-0 bg-[var(--primary)] h-[12%] flex items-center justify-between px-10">
+            <span className="text-white font-bold uppercase tracking-widest text-2xl">
+              {footerLeft || 'VOLUNTEER TRAINING'}
+            </span>
+            <span className="text-white font-bold uppercase tracking-widest text-2xl">
+              {footerRight || '2026 IC'}
+            </span>
+         </div>
+      </div>
+    </div>
+  );
+};
 
 export const AdminDashboard: React.FC = () => {
-  const { modules, deleteModule, resetToDefaults, isCloud } = useAppContext();
-  const [shareModuleId, setShareModuleId] = useState<string | null>(null);
+  const { modules, isCloud, deleteModule } = useAppContext();
+  const navigate = useNavigate();
+  const [activeOverlayId, setActiveOverlayId] = useState<string | null>(null);
 
-  const handleExport = (module: any) => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(module, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `${module.title.replace(/\s+/g, '_')}_module.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-  };
-
-  // Helper to generate the student link
-  const getStudentLink = (id: string) => {
-    // Uses HashRouter format
-    return `${window.location.origin}/#/view/${id}`;
+  const getThumbnailSlide = (module: Module) => {
+    if (module.thumbnailSlideId) {
+      return module.slides.find(s => s.id === module.thumbnailSlideId) || module.slides[0];
+    }
+    return module.slides[0];
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Share Dialog */}
-      {shareModuleId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full shadow-2xl relative">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold flex items-center gap-2"><Share2 size={20} /> Share Module</h3>
-              <button onClick={() => setShareModuleId(null)} className="text-gray-400 hover:text-gray-800"><X size={20} /></button>
-            </div>
-            <p className="text-sm text-gray-500 mb-4">Share this link with your students. They can access the module directly.</p>
-            
-            <div className="flex gap-2 mb-6">
-              <input 
-                readOnly 
-                value={getStudentLink(shareModuleId)} 
-                className="flex-1 p-3 border border-gray-300 rounded-lg bg-gray-50 text-sm font-mono text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-                onClick={(e) => (e.target as HTMLInputElement).select()}
-              />
-              <button 
-                onClick={() => {
-                  navigator.clipboard.writeText(getStudentLink(shareModuleId));
-                  alert('Copied to clipboard!');
-                }}
-                className="bg-[var(--primary)] text-white px-4 rounded-lg font-bold hover:opacity-90 transition-opacity"
-              >
-                Copy
-              </button>
-            </div>
-            
-            <div className="flex justify-end">
-                <button onClick={() => setShareModuleId(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors font-medium">Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+    <div className="p-6 md:p-10 max-w-7xl mx-auto min-h-screen">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6 text-left">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Admin Dashboard</h1>
-          <p className="opacity-70">Manage your learning modules and track progress.</p>
-          <div className={`inline-flex items-center gap-2 mt-2 px-3 py-1 rounded-full text-xs font-bold ${isCloud ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
-            {isCloud ? (
-              <>
-                <Cloud size={14} /> Connected to Cloud (Shared)
-              </>
-            ) : (
-              <>
-                <HardDrive size={14} /> Local Storage (Private)
-              </>
-            )}
+          <h1 className="text-6xl font-black text-gray-900 tracking-tighter mb-2">My Courses</h1>
+          <p className="text-gray-500 font-medium text-xl">Manage your training modules and monitor volunteer engagement.</p>
+          <div className={`inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.15em] ${isCloud ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+            {isCloud ? <><Cloud size={14} /> Cloud Storage Active</> : <><HardDrive size={14} /> Local Storage Only</>}
           </div>
         </div>
-        <div className="flex gap-3">
-          <Link
-            to="/create"
-            className="bg-[var(--primary)] text-white px-6 py-3 rounded-lg flex items-center gap-2 font-medium hover:opacity-90 transition-opacity shadow-sm"
-          >
-            <Plus size={20} />
-            Create Module
-          </Link>
-        </div>
+        <Link
+          to="/create"
+          className="bg-[var(--primary)] text-white px-12 py-6 rounded-[2.5rem] flex items-center gap-4 font-black text-xl hover:opacity-95 transition-all shadow-2xl shadow-orange-200 active:scale-95"
+        >
+          <Plus size={28} strokeWidth={3} /> Create New
+        </Link>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Summary Stats Card */}
-        <div className="col-span-1 md:col-span-2 bg-[var(--primary)] text-white rounded-xl p-6 shadow-lg mb-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold opacity-90">Overview</h2>
-              <div className="flex gap-8 mt-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+        {/* Analytics Summary */}
+        <div className="col-span-full bg-white rounded-[3rem] p-12 shadow-xl border-4 border-[var(--primary)]/10 mb-6 flex flex-col md:flex-row items-center justify-between gap-10 text-left relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-[var(--primary)]/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
+            <div className="flex-1 relative z-10">
+              <h2 className="text-xs font-black text-[var(--primary)] uppercase tracking-[0.4em] mb-6">Aggregate Performance</h2>
+              <div className="flex flex-wrap gap-12 md:gap-20">
                 <div>
-                  <div className="text-3xl font-bold">{modules.length}</div>
-                  <div className="text-sm opacity-80">Total Modules</div>
+                  <div className="text-6xl font-black text-gray-900 tabular-nums">{modules.length}</div>
+                  <div className="text-[11px] font-black text-gray-400 uppercase mt-2 tracking-widest">Modules</div>
                 </div>
+                <div className="w-px h-16 bg-gray-100 hidden sm:block"></div>
                 <div>
-                  <div className="text-3xl font-bold">{modules.reduce((acc, m) => acc + m.stats.views, 0)}</div>
-                  <div className="text-sm opacity-80">Total Views</div>
-                </div>
-                <div>
-                  <div className="text-3xl font-bold">{modules.reduce((acc, m) => acc + m.stats.completions, 0)}</div>
-                  <div className="text-sm opacity-80">Completions</div>
+                  <div className="text-6xl font-black text-gray-900 tabular-nums">{modules.reduce((acc, m) => acc + (m.stats?.completions || 0), 0)}</div>
+                  <div className="text-[11px] font-black text-gray-400 uppercase mt-2 tracking-widest">Total Completions</div>
                 </div>
               </div>
             </div>
-            <BarChart2 size={64} className="opacity-20" />
-          </div>
+            <div className="w-28 h-28 bg-[var(--primary)] text-white rounded-[2.5rem] flex items-center justify-center shadow-2xl shadow-orange-200 relative z-10">
+               <BarChart2 size={56} />
+            </div>
         </div>
 
         {modules.length === 0 ? (
-          <div className="col-span-full text-center py-20 opacity-60">
-            <BookOpen size={64} className="mx-auto mb-4 opacity-30" />
-            <h3 className="text-xl font-medium">No modules yet</h3>
-            <p className="mb-6">Your library is empty. You can create a new module.</p>
-            
-            <div className="flex gap-4 justify-center">
-              <Link
-                to="/create"
-                className="bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-medium hover:bg-gray-50 flex items-center gap-2"
-              >
-                <Plus size={20} />
-                Create New
-              </Link>
+          <div className="col-span-full text-center py-40 bg-white rounded-[4rem] border-4 border-dashed border-gray-100">
+            <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-8">
+               <BookOpen size={48} className="text-gray-200" />
             </div>
+            <h3 className="text-4xl font-black text-gray-800 mb-4">Your library is empty</h3>
+            <p className="text-gray-400 mb-12 max-w-md mx-auto font-medium text-xl leading-relaxed">Ready to build something amazing? Start with a template or a blank canvas.</p>
+            <Link to="/create" className="inline-flex bg-[var(--primary)] text-white px-14 py-6 rounded-[2.5rem] font-black text-xl hover:opacity-95 shadow-2xl active:scale-95 transition-all">Get Started</Link>
           </div>
         ) : (
           modules.map((module) => (
-            <div key={module.id} className="bg-[var(--card-bg)] rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden group">
-              {/* Thumbnail Image */}
-              <div className="h-48 w-full bg-gray-100 relative overflow-hidden border-b border-gray-100">
-                {module.thumbnail ? (
-                  <img 
-                    src={module.thumbnail} 
-                    alt={module.title} 
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+            <div 
+              key={module.id} 
+              className="bg-white rounded-[3rem] border-4 border-transparent hover:border-[var(--primary)]/20 shadow-sm hover:shadow-2xl transition-all duration-500 flex flex-col overflow-hidden group relative transform hover:-translate-y-2 cursor-pointer"
+              onClick={() => setActiveOverlayId(module.id)}
+            >
+              {/* Bigger Thumbnail Area */}
+              <div className="h-96 w-full bg-gray-50 relative overflow-hidden border-b border-gray-100">
+                <div className="w-full h-full scale-[0.8] origin-top-left transition-transform duration-700 group-hover:scale-[0.82]">
+                  <SlidePreview 
+                      slide={getThumbnailSlide(module)} 
+                      footerLeft={module.footerTextLeft} 
+                      footerRight={module.footerTextRight} 
                   />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-300">
-                    <ImageIcon size={48} className="opacity-30" />
-                  </div>
-                )}
-                <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm rounded-md px-2 py-1 text-xs font-mono text-gray-600 shadow-sm">
-                   {new Date(module.createdAt).toLocaleDateString()}
+                </div>
+
+                {/* Integrated Card Overlay */}
+                <div className={`absolute inset-0 bg-black/60 backdrop-blur-xl transition-all duration-500 flex flex-col items-center justify-center p-12 gap-6 ${activeOverlayId === module.id ? 'opacity-100 pointer-events-auto translate-y-0' : 'opacity-0 pointer-events-none translate-y-4 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0'}`}>
+                   <button 
+                      onClick={(e) => { e.stopPropagation(); navigate(`/view/${module.id}`); }}
+                      className="w-full max-w-xs bg-[var(--primary)] text-white py-6 rounded-3xl font-black flex items-center justify-center gap-4 shadow-2xl hover:scale-[1.05] active:scale-95 transition-all uppercase tracking-[0.2em] text-lg"
+                   >
+                      <PlayCircle size={32} strokeWidth={2.5} /> Preview
+                   </button>
+                   <button 
+                      onClick={(e) => { e.stopPropagation(); navigate(`/edit/${module.id}`); }}
+                      className="w-full max-w-xs bg-white text-gray-900 py-6 rounded-3xl font-black flex items-center justify-center gap-4 shadow-2xl hover:scale-[1.05] active:scale-95 transition-all uppercase tracking-[0.2em] text-lg"
+                   >
+                      <Settings size={32} strokeWidth={2.5} /> Edit
+                   </button>
+                   
+                   <div className="flex gap-4 w-full max-w-xs mt-4">
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          if(confirm('Permanently delete this module?')) deleteModule(module.id);
+                        }}
+                        className="flex-1 bg-red-500/10 hover:bg-red-500 text-white/80 hover:text-white py-4 rounded-[2rem] transition-all flex items-center justify-center gap-2 font-black text-xs uppercase tracking-widest border border-red-500/20"
+                      >
+                         <Trash2 size={18} /> Delete
+                      </button>
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          navigator.clipboard.writeText(`${window.location.origin}/#/view/${module.id}`);
+                          alert('Public link copied to clipboard!');
+                        }}
+                        className="flex-1 bg-white/10 hover:bg-white/20 text-white py-4 rounded-[2rem] transition-all flex items-center justify-center gap-2 font-black text-xs uppercase tracking-widest border border-white/20"
+                      >
+                         <Share2 size={18} /> Share
+                      </button>
+                   </div>
+                   
+                   <button 
+                      onClick={(e) => { e.stopPropagation(); setActiveOverlayId(null); }}
+                      className="absolute top-8 right-8 text-white/40 hover:text-white transition-colors p-2"
+                   >
+                      <X size={32} strokeWidth={3} />
+                   </button>
+                </div>
+
+                <div className="absolute top-8 left-8 bg-white/95 backdrop-blur-md rounded-2xl px-5 py-2.5 text-[11px] font-black text-gray-800 shadow-2xl uppercase tracking-[0.2em] border border-white/50 border-l-4 border-l-[var(--primary)]">
+                   {new Date(module.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>
               </div>
 
-              <div className="p-5 flex-1">
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-bold text-lg leading-tight line-clamp-2 text-[var(--primary)]">{module.title}</h3>
+              {/* Card Footer Content */}
+              <div className="p-10 flex-1 text-left flex flex-col relative">
+                <div className="absolute top-0 right-10 -translate-y-1/2 w-16 h-16 bg-white rounded-2xl shadow-xl flex items-center justify-center text-[var(--primary)] border-2 border-gray-50">
+                   <BookOpen size={28} />
                 </div>
-                <p className="text-sm opacity-70 line-clamp-3 mb-4">{module.description}</p>
-                
-                <div className="flex gap-4 text-xs opacity-60 font-medium">
-                  <span className="flex items-center gap-1">
-                    <ExternalLink size={12} /> {module.stats.views} Views
+                <h3 className="font-black text-3xl leading-tight text-gray-900 mb-4 line-clamp-2 pr-12">{module.title}</h3>
+                <p className="text-gray-500 line-clamp-2 mb-10 font-medium text-lg leading-relaxed flex-1">{module.description || 'Custom interactive training program'}</p>
+                <div className="flex items-center gap-8 text-[11px] font-black uppercase tracking-[0.2em] text-gray-400 mt-auto">
+                  <span className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-2xl">
+                    <Eye size={18} className="text-[var(--primary)]" /> <span>{(module.stats?.views || 0)} Views</span>
                   </span>
-                  <span className="flex items-center gap-1">
-                    <BarChart2 size={12} /> {module.stats.completions} Completed
+                  <span className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-2xl">
+                    <CheckCircle2 size={18} className="text-[var(--primary)]" /> <span>{module.slides.length} Slides</span>
                   </span>
-                </div>
-              </div>
-              
-              <div className="p-4 border-t border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => setShareModuleId(module.id)}
-                    className="p-2 text-gray-500 hover:text-[var(--primary)] transition-colors"
-                    title="Share Link"
-                  >
-                    <Share2 size={18} />
-                  </button>
-                  <Link
-                    to={`/view/${module.id}`}
-                    className="p-2 text-gray-500 hover:text-[var(--primary)] transition-colors"
-                    title="View as Student"
-                  >
-                    <Eye size={18} />
-                  </Link>
-                  <button
-                    onClick={() => handleExport(module)}
-                    className="p-2 text-gray-500 hover:text-[var(--primary)] transition-colors"
-                    title="Export JSON"
-                  >
-                    <Download size={18} />
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  <Link
-                    to={`/edit/${module.id}`}
-                    className="p-2 text-gray-500 hover:text-blue-600 transition-colors"
-                    title="Edit"
-                  >
-                    <Edit2 size={18} />
-                  </Link>
-                  <button
-                    onClick={() => {
-                      if(confirm('Are you sure you want to delete this module?')) deleteModule(module.id);
-                    }}
-                    className="p-2 text-gray-500 hover:text-red-500 transition-colors"
-                    title="Delete"
-                  >
-                    <Trash2 size={18} />
-                  </button>
                 </div>
               </div>
             </div>
@@ -216,3 +231,11 @@ export const AdminDashboard: React.FC = () => {
     </div>
   );
 };
+
+// Internal icon helper
+const CheckCircle2 = ({ size, className }: any) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+);
