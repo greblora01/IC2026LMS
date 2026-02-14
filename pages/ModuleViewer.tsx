@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -159,10 +158,6 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     }
 
     if (!id) {
-        if (!loading) {
-            setError("No module specified.");
-            setLoading(false);
-        }
         return;
     }
 
@@ -177,11 +172,11 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
          setAnswers(new Array(foundModule.quiz?.questions.length || 0).fill(-1));
          setError(null);
       } else {
-         setError("Module not found. It may have been deleted.");
+         setError("Module not found. Please check the URL and try again.");
       }
       setLoading(false);
     }
-  }, [id, getModule, previewModule, contextLoading, incrementModuleView, loading]);
+  }, [id, getModule, previewModule, contextLoading, incrementModuleView]);
 
   // Completion Tracking Logic
   useEffect(() => {
@@ -193,14 +188,21 @@ export const ModuleViewer: React.FC<ModuleViewerProps> = ({ previewModule, onExi
     }
   }, [showCertificate, module?.id, incrementModuleCompletion]);
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-[var(--bg-color)]"><Loader2 className="animate-spin text-[var(--primary)]" size={48} /></div>;
+  if (loading || contextLoading) return (
+    <div className="h-screen flex flex-col items-center justify-center bg-white">
+        <Loader2 className="animate-spin text-[var(--primary)] mb-6" size={64} />
+        <p className="text-gray-400 font-black uppercase tracking-[0.2em] text-xs">Syncing with Course Database...</p>
+    </div>
+  );
   
   if (error || !module) return (
     <div className="h-screen flex flex-col items-center justify-center p-10 text-center bg-gray-50">
-        <div className="text-red-500 mb-4"><X size={48} /></div>
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">Error Loading Module</h2>
-        <p className="text-gray-600 mb-6">{error || "Unknown error occurred."}</p>
-        <button onClick={() => navigate('/')} className="bg-gray-800 text-white px-6 py-2 rounded-lg">Return to Dashboard</button>
+        <div className="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-8">
+            <X size={48} strokeWidth={3} />
+        </div>
+        <h2 className="text-4xl font-black text-gray-900 mb-4">Module Unreachable</h2>
+        <p className="text-gray-500 mb-10 max-w-md mx-auto text-lg leading-relaxed font-medium">{error || "The requested training module could not be retrieved."}</p>
+        <button onClick={() => navigate('/')} className="bg-[var(--primary)] text-white px-10 py-4 rounded-2xl font-black shadow-2xl active:scale-95 transition-all">Back to Home</button>
     </div>
   );
 

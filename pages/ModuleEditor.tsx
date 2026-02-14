@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -5,17 +6,17 @@ import {
   Eye, Image as ImageIcon, Loader2, Type as TypeIcon, 
   Youtube, X, Grid3X3, Hash, Star, Settings2, Trash2, 
   MousePointer2, Square, Layers, LayoutTemplate, ChevronRight,
-  ImagePlus, Upload, Copy, FileUp, FileText
+  ImagePlus, Upload, Copy, FileUp, FileText, Tag
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { RichTextEditor, TextToolbar } from '../components/RichTextEditor';
-import { Module, Slide, SlideBlock, BlockType } from '../types';
+import { Module, Slide, SlideBlock, BlockType, ModuleCategory } from '../types';
 import { ModuleViewer } from './ModuleViewer';
 import { NEW_MODULE_TEMPLATE_SLIDES, SLIDE_TEMPLATES } from '../constants';
 import * as pdfjs from 'pdfjs-dist';
 
 /**
- * Robust PDF.js helper to handle different module resolutions from esm.sh
+ * Robust PDF.js helper to handle different module resolutions
  */
 const getPdfLib = () => {
   const lib = pdfjs as any;
@@ -24,9 +25,6 @@ const getPdfLib = () => {
   return lib;
 };
 
-/**
- * Ensures the worker is correctly pointed to a stable CDN location.
- */
 const initPdfWorker = () => {
   try {
     const lib = getPdfLib();
@@ -37,9 +35,6 @@ const initPdfWorker = () => {
     console.warn("PDF.js worker initialization delayed:", e);
   }
 };
-
-// Initial call
-initPdfWorker();
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const GRID_SIZE = 2; 
@@ -119,6 +114,7 @@ export const ModuleEditor: React.FC = () => {
   const [formData, setFormData] = useState<Partial<Module>>({
     title: '',
     description: '',
+    category: 'UNCATEGORIZED',
     thumbnail: '',
     thumbnailSlideId: '',
     footerTextLeft: 'VOLUNTEER TRAINING',
@@ -161,7 +157,7 @@ export const ModuleEditor: React.FC = () => {
       if (existing) {
         setFormData(safeClone(existing));
         if (existing.slides.length > 0) setActiveSectionId(existing.slides[0].id);
-      } else navigate('/');
+      } else navigate('/admin');
     } else {
        const templateSlides = NEW_MODULE_TEMPLATE_SLIDES.map(s => ({
          ...s,
@@ -172,6 +168,7 @@ export const ModuleEditor: React.FC = () => {
        setFormData(prev => ({ 
          ...prev, 
          title: 'New Training Module', 
+         category: 'UNCATEGORIZED',
          slides: templateSlides as Slide[], 
          thumbnailSlideId: templateSlides[0].id,
          thumbnail: ''
@@ -212,7 +209,7 @@ export const ModuleEditor: React.FC = () => {
         moduleData.createdAt = Date.now();
         await addModule(moduleData);
       }
-      navigate('/');
+      navigate('/admin');
     } catch (error: any) {
       alert("Failed to save: " + error.message);
     } finally {
@@ -263,30 +260,109 @@ export const ModuleEditor: React.FC = () => {
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1 });
         const textContent = await page.getTextContent();
-        const textItems = textContent.items.map((item: any) => item.str).join(' ');
         
-        const words = textItems.trim().split(/\s+/);
-        const titleText = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
-        const bodyText = textItems.trim();
+        const items = textContent.items as any[];
+        const slideBlocks: SlideBlock[] = [];
+        
+        // Advanced Grouping: Group items by horizontal and vertical proximity
+        const lines: Record<number, any[]> = {};
+        items.forEach(item => {
+          const y = Math.round(item.transform[5]);
+          if (!lines[y]) lines[y] = [];
+          lines[y].push(item);
+        });
+
+        const sortedY = Object.keys(lines).map(Number).sort((a, b) => b - a);
+        
+        let currentGroup: { y: number, items: any[] }[] = [];
+        const Y_THRESHOLD = viewport.height * 0.08; 
+
+        const createBlockFromItems = (groupedLines: { y: number, items: any[] }[]) => {
+            if (groupedLines.length === 0) return null;
+            
+            let minX = viewport.width;
+            let maxX = 0;
+            let minY = viewport.height;
+            let maxY = 0;
+            
+            groupedLines.forEach(line => {
+                line.items.forEach(it => {
+                   const x = it.transform[4];
+                   const y = viewport.height - it.transform[5];
+                   const w = it.width;
+                   const h = it.height || 14;
+                   
+                   minX = Math.min(minX, x);
+                   maxX = Math.max(maxX, x + w);
+                   minY = Math.min(minY, y - h);
+                   maxY = Math.max(maxY, y);
+                });
+            });
+
+            // Map to percentage (avoid edges)
+            const xPct = Math.max(8, Math.min(85, (minX / viewport.width) * 100));
+            const yPct = Math.max(8, Math.min(80, (minY / viewport.height) * 100));
+            const wPct = Math.min(85, ((maxX - minX) / viewport.width) * 100 + 4);
+            const hPct = Math.min(75, ((maxY - minY) / viewport.height) * 100 + 4);
+
+            let html = '';
+            groupedLines.forEach((line, idx) => {
+                const sortedItems = line.items.sort((a, b) => a.transform[4] - b.transform[4]);
+                const lineText = sortedItems.map(it => it.str).join(' ');
+                if (lineText.trim()) {
+                   // Heuristic for headers: shorter lines at the top of a group
+                   if (idx === 0 && (lineText.length < 40 || groupedLines.length === 1)) {
+                      html += `<h2 style="color: ${theme.primary}; font-weight: 800; font-size: 28px; line-height: 1.2; margin-bottom: 12px;">${lineText}</h2>`;
+                   } else {
+                      html += `<p style="font-size: 16px; line-height: 1.5; margin-bottom: 6px; color: ${theme.text};">${lineText}</p>`;
+                   }
+                }
+            });
+
+            if (!html || html.replace(/<[^>]*>/g, '').trim().length === 0) return null;
+
+            return {
+                id: generateId(),
+                type: 'text' as BlockType,
+                x: Math.round(xPct),
+                y: Math.round(yPct),
+                width: Math.round(Math.max(wPct, 25)),
+                height: Math.round(Math.max(hPct, 8)),
+                content: html,
+                zIndex: slideBlocks.length + 1,
+                style: { padding: 10 }
+            };
+        };
+
+        sortedY.forEach((y) => {
+            const line = { y, items: lines[y] };
+            if (currentGroup.length === 0) {
+                currentGroup.push(line);
+            } else {
+                const lastY = currentGroup[currentGroup.length - 1].y;
+                // If the vertical distance is too large, start a new block
+                if (Math.abs(lastY - y) < Y_THRESHOLD) {
+                    currentGroup.push(line);
+                } else {
+                    const blk = createBlockFromItems(currentGroup);
+                    if (blk) slideBlocks.push(blk);
+                    currentGroup = [line];
+                }
+            }
+        });
+
+        const lastBlk = createBlockFromItems(currentGroup);
+        if (lastBlk) slideBlocks.push(lastBlk);
 
         const slide: Slide = {
           id: generateId(),
-          title: `PDF Page ${i}`,
+          title: `Document Page ${i}`,
           layout: 'canvas',
-          blocks: [
-            {
-              id: generateId(),
-              type: 'text',
-              x: 10, y: 15, width: 80, height: 70,
-              content: `
-                <h2 style="color: ${theme.primary}; font-weight: 800; font-size: 32px; margin-bottom: 20px;">${titleText}</h2>
-                <p style="font-size: 18px; line-height: 1.6; color: ${theme.text};">${bodyText}</p>
-              `,
-              zIndex: 1
-            }
-          ],
-          content: ''
+          blocks: slideBlocks,
+          content: '',
+          backgroundColor: '#ffffff'
         };
         newSlides.push(slide);
       }
@@ -295,7 +371,7 @@ export const ModuleEditor: React.FC = () => {
       if (newSlides.length > 0) setActiveSectionId(newSlides[0].id);
     } catch (err) {
       console.error(err);
-      alert("Failed to process PDF.");
+      alert("Failed to process document spatial layout.");
     } finally {
       setIsProcessingFile(false);
       if (pdfInputRef.current) pdfInputRef.current.value = '';
@@ -477,20 +553,20 @@ export const ModuleEditor: React.FC = () => {
         <div className="fixed inset-0 z-[250] bg-black/40 backdrop-blur-sm flex items-center justify-center">
            <div className="bg-white p-12 rounded-[3rem] shadow-2xl flex flex-col items-center gap-6">
               <Loader2 className="animate-spin text-[var(--primary)]" size={48} />
-              <p className="font-black text-xs uppercase tracking-[0.2em] text-gray-500">Processing Document...</p>
+              <p className="font-black text-xs uppercase tracking-[0.2em] text-gray-500">Extracting Layout...</p>
            </div>
         </div>
       )}
 
       <header className="h-16 bg-white border-b flex justify-between items-center px-6 z-[60] shrink-0 shadow-sm">
         <div className="flex items-center gap-4 flex-1 text-left">
-          <button onClick={() => navigate('/')} className="p-2.5 hover:bg-gray-50 rounded-xl text-gray-400 hover:text-[var(--primary)] transition-all">
+          <button onClick={() => navigate('/admin')} className="p-2.5 hover:bg-gray-50 rounded-xl text-gray-400 hover:text-[var(--primary)] transition-all">
             <ArrowLeft size={22} />
           </button>
           <div className="h-8 w-px bg-gray-100" />
           <input 
             type="text" 
-            value={formData.title} 
+            value={formData.title || ''} 
             onChange={e => setFormData({ ...formData, title: e.target.value })} 
             className="text-xl font-black bg-transparent outline-none w-full max-w-md text-gray-900 tracking-tight placeholder:text-gray-200" 
             placeholder="Untitled Module" 
@@ -704,6 +780,24 @@ export const ModuleEditor: React.FC = () => {
                 </div>
 
                 <div className="space-y-8 text-left">
+                  {/* Category Selection */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-4">
+                       <Tag size={16} className="text-[var(--primary)]" />
+                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Module Category</label>
+                    </div>
+                    <select 
+                      value={formData.category}
+                      onChange={e => setFormData({ ...formData, category: e.target.value as ModuleCategory })}
+                      className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-orange-100 transition-all cursor-pointer"
+                    >
+                      <option value="UNCATEGORIZED">Uncategorized</option>
+                      <option value="GVM">General Volunteer (GVM)</option>
+                      <option value="CCVM">Convention Committee (CCVM)</option>
+                      <option value="HCVM">Hospitality Committee (HCVM)</option>
+                    </select>
+                  </div>
+
                   <div>
                     <div className="flex items-center gap-2 mb-4">
                        <ImagePlus size={16} className="text-[var(--primary)]" />

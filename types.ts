@@ -93,10 +93,13 @@ export interface Slide {
   backgroundImage?: string;
 }
 
+export type ModuleCategory = 'GVM' | 'CCVM' | 'HCVM' | 'UNCATEGORIZED';
+
 export interface Module {
   id: string;
   title: string;
   description: string;
+  category: ModuleCategory;
   thumbnail?: string;
   thumbnailSlideId?: string; // ID of the slide used for the card preview
   certificateTitle?: string;

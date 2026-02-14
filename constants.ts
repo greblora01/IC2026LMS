@@ -137,6 +137,8 @@ export const MOCK_MODULES: Module[] = [
     id: 'cultural-awareness',
     title: 'Volunteer Training Module 2: Cultural Awareness',
     description: 'Cultural Awareness & Proper Conduct in Assisting International Delegates.',
+    // Added missing category property
+    category: 'GVM',
     thumbnail: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?q=80&w=800&auto=format&fit=crop',
     certificateTitle: 'Cultural Awareness & Proper Conduct',
     certificateMessage: 'Thank you for completing the Volunteer Training Module 2. Your attention to cultural sensitivity will help make the 2026 IC a success.',

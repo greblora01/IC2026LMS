@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Plus, BarChart2, BookOpen, Eye, 
-  Cloud, HardDrive, Settings, PlayCircle, Trash2, X, Share2
+  Cloud, HardDrive, Settings, PlayCircle, X, Home, Tag
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { Module, Slide } from '../types';
@@ -80,7 +80,7 @@ const SlidePreview: React.FC<{ slide: Slide; footerLeft?: string; footerRight?: 
 };
 
 export const AdminDashboard: React.FC = () => {
-  const { modules, isCloud, deleteModule } = useAppContext();
+  const { modules, isCloud } = useAppContext();
   const navigate = useNavigate();
   const [activeOverlayId, setActiveOverlayId] = useState<string | null>(null);
 
@@ -95,7 +95,12 @@ export const AdminDashboard: React.FC = () => {
     <div className="p-6 md:p-10 max-w-7xl mx-auto min-h-screen">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6 text-left">
         <div>
-          <h1 className="text-6xl font-black text-gray-900 tracking-tighter mb-2">My Courses</h1>
+          <div className="flex items-center gap-4 mb-2">
+            <h1 className="text-6xl font-black text-gray-900 tracking-tighter">Admin Portal</h1>
+            <Link to="/" className="p-3 bg-white border rounded-2xl text-gray-400 hover:text-[var(--primary)] shadow-sm transition-all flex items-center gap-2 font-bold text-sm">
+              <Home size={18} /> View Student Site
+            </Link>
+          </div>
           <p className="text-gray-500 font-medium text-xl">Manage your training modules and monitor volunteer engagement.</p>
           <div className={`inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.15em] ${isCloud ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
             {isCloud ? <><Cloud size={14} /> Cloud Storage Active</> : <><HardDrive size={14} /> Local Storage Only</>}
@@ -183,28 +188,6 @@ export const AdminDashboard: React.FC = () => {
                       <Settings size={32} strokeWidth={2.5} /> Edit
                    </button>
                    
-                   <div className="flex gap-4 w-full max-w-xs mt-4">
-                      <button 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          if(confirm('Permanently delete this module?')) deleteModule(module.id);
-                        }}
-                        className="flex-1 bg-red-500/10 hover:bg-red-500 text-white/80 hover:text-white py-4 rounded-[2rem] transition-all flex items-center justify-center gap-2 font-black text-xs uppercase tracking-widest border border-red-500/20"
-                      >
-                         <Trash2 size={18} /> Delete
-                      </button>
-                      <button 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          navigator.clipboard.writeText(`${window.location.origin}/#/view/${module.id}`);
-                          alert('Public link copied to clipboard!');
-                        }}
-                        className="flex-1 bg-white/10 hover:bg-white/20 text-white py-4 rounded-[2rem] transition-all flex items-center justify-center gap-2 font-black text-xs uppercase tracking-widest border border-white/20"
-                      >
-                         <Share2 size={18} /> Share
-                      </button>
-                   </div>
-                   
                    <button 
                       onClick={(e) => { e.stopPropagation(); setActiveOverlayId(null); }}
                       className="absolute top-8 right-8 text-white/40 hover:text-white transition-colors p-2"
@@ -213,8 +196,8 @@ export const AdminDashboard: React.FC = () => {
                    </button>
                 </div>
 
-                <div className="absolute top-8 left-8 bg-white/95 backdrop-blur-md rounded-2xl px-5 py-2.5 text-[11px] font-black text-gray-800 shadow-2xl uppercase tracking-[0.2em] border border-white/50 border-l-4 border-l-[var(--primary)] z-10">
-                   {new Date(module.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                <div className="absolute top-8 left-8 bg-white/95 backdrop-blur-md rounded-2xl px-5 py-2.5 text-[11px] font-black text-gray-800 shadow-2xl uppercase tracking-[0.2em] border border-white/50 border-l-4 border-l-[var(--primary)] z-10 flex items-center gap-2">
+                   <Tag size={12} className="text-[var(--primary)]" /> {module.category || 'UNCATEGORIZED'}
                 </div>
               </div>
 

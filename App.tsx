@@ -1,9 +1,11 @@
+
 import React from 'react';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { AppProvider } from './contexts/AppContext';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { ModuleEditor } from './pages/ModuleEditor';
 import { ModuleViewer } from './pages/ModuleViewer';
+import { LandingPage } from './pages/LandingPage';
 
 const App: React.FC = () => {
   return (
@@ -11,7 +13,8 @@ const App: React.FC = () => {
       <Router>
         <div className="min-h-screen theme-transition">
           <Routes>
-            <Route path="/" element={<AdminDashboard />} />
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/create" element={<ModuleEditor />} />
             <Route path="/edit/:id" element={<ModuleEditor />} />
             <Route path="/view/:id" element={<ModuleViewer />} />
