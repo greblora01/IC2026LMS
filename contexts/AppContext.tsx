@@ -50,12 +50,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         console.error("Firebase connection error or timeout:", error);
         // On error, try to load from local storage if available
         const saved = localStorage.getItem('lms_modules');
-        if (saved) {
-           setModules(JSON.parse(saved));
-        } else {
-           // Fallback to mocks if nothing in local storage on error
-           setModules(MOCK_MODULES);
-        }
+        if (saved) setModules(JSON.parse(saved));
         setIsLoading(false);
       });
       return () => unsubscribe();
@@ -167,7 +162,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         await batch.commit();
       } catch (error) {
         console.error("Error resetting DB:", error);
-        alert("Failed to reset database (check permissions/connection).");
       }
     } else {
       saveToLocalStorage(MOCK_MODULES);

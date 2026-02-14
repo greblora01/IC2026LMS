@@ -68,7 +68,7 @@ export const SLIDE_TEMPLATES = [
       },
       { 
         type: 'text', 
-        content: '<h2 style="text-align: center; color: var(--primary);">"Key Quote or Stat"</h2><p style="text-align: center;">Supporting detail text.</p>', 
+        content: '<h2 style="text-align: center; color: #f57f20;">"Key Quote or Stat"</h2><p style="text-align: center;">Supporting detail text.</p>', 
         x: 20, y: 35, width: 60, height: 30, zIndex: 1 
       }
     ]
@@ -117,9 +117,9 @@ export const NEW_MODULE_TEMPLATE_SLIDES = [
         zIndex: 1,
         content: `
           <p class="mb-4 text-lg leading-relaxed">Welcome to this training module. Use this paragraph to introduce the topic with warmth and enthusiasm.</p>
-          <div class="bg-gray-50 p-6 rounded-xl border-l-4 border-[var(--primary)] my-6 italic text-gray-700">
+          <div class="bg-orange-50 p-6 rounded-xl border-l-4 border-orange-400 my-6 italic text-gray-700">
             "Insert a key scripture or guiding principle here."
-            <div class="mt-2 font-bold text-[var(--primary)] not-italic">—Reference</div>
+            <div class="mt-2 font-bold text-orange-600 not-italic">—Reference</div>
           </div>
           <p class="text-sm text-gray-500 mt-4">Reference: Source Material Name</p>
         `
@@ -129,6 +129,10 @@ export const NEW_MODULE_TEMPLATE_SLIDES = [
 ];
 
 export const MOCK_MODULES: Module[] = [
+    // ... Keeping mock modules but they will render via legacy renderer until updated
+    // For brevity, assuming MOCK_MODULES from previous file are preserved here
+    // In a real scenario, we'd ensure the mock data is compatible, 
+    // but the viewer handles legacy 'text-only' layouts so no change needed to data structure here.
     {
     id: 'cultural-awareness',
     title: 'Volunteer Training Module 2: Cultural Awareness',

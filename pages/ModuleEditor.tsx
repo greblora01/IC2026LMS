@@ -4,7 +4,7 @@ import {
   ArrowLeft, Save, Upload, Plus, Trash, CheckCircle, 
   FileText, Eye, MonitorPlay, Image as ImageIcon, 
   FileUp, Loader2, Type as TypeIcon, Youtube, X, 
-  Paperclip, Copy, LayoutTemplate, MousePointer2, Layers, Square, Palette
+  Paperclip, Copy, LayoutTemplate, MousePointer2, Layers, Square
 } from 'lucide-react';
 import { useAppContext } from '../contexts/AppContext';
 import { RichTextEditor } from '../components/RichTextEditor';
@@ -36,7 +36,7 @@ interface SlideFooterProps {
 
 const SlideFooter: React.FC<SlideFooterProps> = ({ leftText, rightText, isThumbnail }) => (
   <div 
-    className={`absolute bottom-0 left-0 right-0 bg-[var(--primary)] flex items-center justify-between z-0 select-none ${isThumbnail ? 'h-[12%] px-6' : 'h-[12%] px-10'}`}
+    className={`absolute bottom-0 left-0 right-0 bg-[#f57f20] flex items-center justify-between z-0 select-none ${isThumbnail ? 'h-[12%] px-6' : 'h-[12%] px-10'}`}
   >
     <span className={`text-white font-bold uppercase tracking-widest ${isThumbnail ? 'text-[24px]' : 'text-xl md:text-2xl'}`}>
       {leftText || 'VOLUNTEER TRAINING'}
@@ -119,7 +119,7 @@ const SlideThumbnail: React.FC<SlideThumbnailProps> = ({ slide, isActive, footer
 export const ModuleEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { addModule, updateModule, getModule, isLoading: contextLoading, theme } = useAppContext();
+  const { addModule, updateModule, getModule } = useAppContext();
   
   const isEditMode = !!id;
   const [activeSection, setActiveSection] = useState<EditorSection>('');
@@ -154,8 +154,6 @@ export const ModuleEditor: React.FC = () => {
   });
 
   useEffect(() => {
-    if (contextLoading) return; // Wait for modules to load
-
     if (isEditMode && id) {
       const existing = getModule(id);
       if (existing) {
@@ -183,7 +181,7 @@ export const ModuleEditor: React.FC = () => {
        }));
        setActiveSection(templateSlides[0].id);
     }
-  }, [id, isEditMode, getModule, navigate, contextLoading]);
+  }, [id, isEditMode, getModule, navigate]);
 
   const handleSave = async () => {
     if (!formData.title) return alert('Title is required');
@@ -241,19 +239,6 @@ export const ModuleEditor: React.FC = () => {
     setFormData(prev => ({ ...prev, slides: newSlides }));
     if (activeSection === slideId) {
         setActiveSection(newSlides.length > 0 ? newSlides[0].id : 'quiz');
-    }
-  };
-
-  const applyThemeToAllSlides = () => {
-    if(!formData.slides) return;
-    if(confirm(`This will set the background color of ALL slides to the current theme card background (${theme.cardBg}). Continue?`)) {
-       setFormData(prev => ({
-          ...prev,
-          slides: prev.slides?.map(s => ({
-             ...s,
-             backgroundColor: theme.cardBg
-          }))
-       }));
     }
   };
 
@@ -497,10 +482,6 @@ export const ModuleEditor: React.FC = () => {
     setDraggedSlideIndex(null);
   };
 
-  if (contextLoading) {
-    return <div className="h-screen flex items-center justify-center bg-gray-100"><Loader2 className="animate-spin text-[var(--primary)]" size={32} /></div>;
-  }
-
   if (showPreview) {
     return (
       <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
@@ -526,13 +507,13 @@ export const ModuleEditor: React.FC = () => {
              type="text"
              value={formData.title}
              onChange={e => setFormData({ ...formData, title: e.target.value })}
-             className="text-xl font-bold bg-transparent border-none focus:ring-0 outline-none w-full max-w-md text-[var(--primary)]"
+             className="text-xl font-bold bg-transparent border-none focus:ring-0 outline-none w-full max-w-md text-[#f57f20]"
              placeholder="Untitled Module"
           />
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => setShowPreview(true)} className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"><Eye size={18} /> Preview</button>
-          <button onClick={handleSave} disabled={isSaving} className="bg-[var(--primary)] text-white px-6 py-2 rounded-lg flex items-center gap-2 font-medium hover:opacity-90">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} Save</button>
+          <button onClick={handleSave} disabled={isSaving} className="bg-[#f57f20] text-white px-6 py-2 rounded-lg flex items-center gap-2 font-medium hover:opacity-90">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} Save</button>
         </div>
       </div>
 
@@ -713,23 +694,13 @@ export const ModuleEditor: React.FC = () => {
                         <div className="space-y-3">
                             <div>
                                 <label className="text-[10px] text-gray-500 font-bold uppercase block mb-1">Left Text</label>
-                                <input type="text" value={formData.footerTextLeft || ''} onChange={e => setFormData({...formData, footerTextLeft: e.target.value})} className="w-full text-sm border rounded p-1.5 focus:border-[var(--primary)] outline-none" placeholder="e.g. VOLUNTEER TRAINING" />
+                                <input type="text" value={formData.footerTextLeft || ''} onChange={e => setFormData({...formData, footerTextLeft: e.target.value})} className="w-full text-sm border rounded p-1.5 focus:border-[#f57f20] outline-none" placeholder="e.g. VOLUNTEER TRAINING" />
                             </div>
                             <div>
                                 <label className="text-[10px] text-gray-500 font-bold uppercase block mb-1">Right Text</label>
-                                <input type="text" value={formData.footerTextRight || ''} onChange={e => setFormData({...formData, footerTextRight: e.target.value})} className="w-full text-sm border rounded p-1.5 focus:border-[var(--primary)] outline-none" placeholder="e.g. 2026 IC" />
+                                <input type="text" value={formData.footerTextRight || ''} onChange={e => setFormData({...formData, footerTextRight: e.target.value})} className="w-full text-sm border rounded p-1.5 focus:border-[#f57f20] outline-none" placeholder="e.g. 2026 IC" />
                             </div>
                         </div>
-                    </div>
-                    <div className="border-t pt-4">
-                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Theme & Uniformity</h3>
-                        <button 
-                            onClick={applyThemeToAllSlides} 
-                            className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors"
-                            title={`Set all slides background to ${theme.cardBg}`}
-                        >
-                            <Palette size={14} /> Apply Theme Background
-                        </button>
                     </div>
                  </div>
               )}
@@ -745,7 +716,7 @@ export const ModuleEditor: React.FC = () => {
                onDragStart={(e) => handleSlideDragStart(e, idx)}
                onDragOver={(e) => handleSlideDragOver(e, idx)}
                onDragEnd={handleSlideDragEnd}
-               className={`w-40 h-24 border rounded-lg cursor-pointer relative shrink-0 overflow-hidden bg-gray-100 group transition-all select-none ${activeSection === slide.id ? 'border-[var(--primary)] ring-2 ring-gray-200 shadow-md' : 'border-gray-300 hover:border-[var(--primary)]'}`}
+               className={`w-40 h-24 border rounded-lg cursor-pointer relative shrink-0 overflow-hidden bg-gray-100 group transition-all select-none ${activeSection === slide.id ? 'border-[#f57f20] ring-2 ring-orange-100 shadow-md' : 'border-gray-300 hover:border-[#f57f20]'}`}
              >
                 <SlideThumbnail 
                     slide={slide} 
@@ -760,7 +731,7 @@ export const ModuleEditor: React.FC = () => {
                 </div>
              </div>
           ))}
-          <button onClick={() => setShowTemplateModal(true)} className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:border-[var(--primary)] hover:text-[var(--primary)] hover:bg-gray-50 transition-colors shrink-0">
+          <button onClick={() => setShowTemplateModal(true)} className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:border-[#f57f20] hover:text-[#f57f20] hover:bg-orange-50 transition-colors shrink-0">
              <Plus size={24} className="mb-1" />
              <span className="text-xs font-medium">Add Slide</span>
           </button>
@@ -786,8 +757,8 @@ export const ModuleEditor: React.FC = () => {
                       setFormData(prev => ({ ...prev, slides: [...(prev.slides || []), newSlide] }));
                       setActiveSection(newSlide.id);
                       setShowTemplateModal(false);
-                   }} className="p-4 border rounded-xl hover:border-[var(--primary)] hover:bg-gray-50 hover:shadow-md transition-all text-left flex flex-col h-full">
-                      <div className="font-bold text-[var(--primary)] mb-2">{t.label}</div>
+                   }} className="p-4 border rounded-xl hover:border-[#f57f20] hover:bg-orange-50/50 hover:shadow-md transition-all text-left flex flex-col h-full">
+                      <div className="font-bold text-[#f57f20] mb-2">{t.label}</div>
                       <div className="text-sm text-gray-500">{t.description}</div>
                    </button>
                 ))}
@@ -827,7 +798,7 @@ export const ModuleEditor: React.FC = () => {
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 relative cursor-pointer">
                    <input type="file" onChange={handleResourceUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                    <div className="flex flex-col items-center gap-2">
-                      <Upload size={24} className="text-[var(--primary)]" />
+                      <Upload size={24} className="text-[#f57f20]" />
                       <span className="text-sm text-gray-600 font-medium">Click to upload PDF or File</span>
                    </div>
                 </div>
@@ -840,7 +811,7 @@ export const ModuleEditor: React.FC = () => {
 };
 
 const ToolButton = ({ icon, label, onClick, active, disabled }: any) => (
-  <button onClick={onClick} disabled={disabled} className={`flex flex-col items-center gap-1 p-2 rounded-lg w-16 transition-colors ${active ? 'bg-gray-100 text-[var(--primary)]' : 'text-gray-500 hover:bg-gray-100'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+  <button onClick={onClick} disabled={disabled} className={`flex flex-col items-center gap-1 p-2 rounded-lg w-16 transition-colors ${active ? 'bg-orange-50 text-[#f57f20]' : 'text-gray-500 hover:bg-gray-100'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
      <div className="p-2 bg-white rounded border border-gray-200">{icon}</div>
      <span className="text-[10px] font-medium">{label}</span>
   </button>

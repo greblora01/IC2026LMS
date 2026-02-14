@@ -10,10 +10,9 @@ import {
 interface RichTextEditorProps {
   initialContent: string;
   onChange: (content: string) => void;
-  className?: string;
 }
 
-export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, onChange, className = "" }) => {
+export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, onChange }) => {
   const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,8 +39,8 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, 
   };
 
   return (
-    <div className={`border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-[var(--primary)] transition-shadow bg-[var(--card-bg)] flex flex-col h-full ${className}`}>
-      <div className="flex items-center gap-1 p-2 border-b border-gray-200 bg-gray-50 flex-wrap shrink-0">
+    <div className="border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-[var(--primary)] transition-shadow bg-[var(--card-bg)]">
+      <div className="flex items-center gap-1 p-2 border-b border-gray-200 bg-gray-50 flex-wrap">
         {/* Font Family Dropdown */}
         <select 
           onChange={(e) => {
@@ -100,7 +99,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({ initialContent, 
         ref={editorRef}
         contentEditable
         onInput={handleInput}
-        className="p-4 outline-none prose max-w-none text-[var(--text-color)] flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+        className="p-4 min-h-[200px] outline-none prose max-w-none text-[var(--text-color)]"
         style={{ color: 'var(--text-color)' }}
       />
     </div>
