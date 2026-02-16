@@ -16,6 +16,8 @@
     "react-router-dom": "^7.13.0",
     "firebase": "^12.9.0",
     "pdfjs-dist": "3.11.174",
+    "dompurify": "^3.0.0",
+    "lodash": "^4.17.21",
     "@google/genai": "^1.41.0"
   },
   "devDependencies": {

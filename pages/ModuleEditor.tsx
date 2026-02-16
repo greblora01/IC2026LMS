@@ -1,74 +1,115 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import DOMPurify from 'dompurify';
+import { throttle } from 'lodash';
 import { 
-  ArrowLeft, Save, Plus, Trash, CheckCircle, 
+  ArrowLeft, Save, Plus, Trash2, 
   Eye, Image as ImageIcon, Loader2, Type as TypeIcon, 
-  Youtube, X, Grid3X3, Hash, Star, Settings2, Trash2, 
-  MousePointer2, Square, Layers, LayoutTemplate, ChevronRight,
-  ImagePlus, Upload, Copy, FileUp, FileText, Tag
+  Youtube, X, Grid3X3, Hash, Settings2, 
+  MousePointer2, Square, Layers, LayoutTemplate,
+  RotateCcw, RotateCw,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify,
+  Bold, Italic, Underline, List, ZoomIn, ZoomOut, ChevronDown, Shapes, Upload, ImagePlus, FileUp
 } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
 import { useAppContext } from '../contexts/AppContext';
-import { RichTextEditor, TextToolbar } from '../components/RichTextEditor';
+import { RichTextEditor, applyGlobalCommand, restoreGlobalSelection, saveGlobalSelection } from '../components/RichTextEditor';
 import { Module, Slide, SlideBlock, BlockType, ModuleCategory } from '../types';
 import { ModuleViewer } from './ModuleViewer';
 import { NEW_MODULE_TEMPLATE_SLIDES, SLIDE_TEMPLATES } from '../constants';
-import * as pdfjs from 'pdfjs-dist';
 
-/**
- * Robust PDF.js helper to handle different module resolutions
- */
-const getPdfLib = () => {
-  const lib = pdfjs as any;
-  if (lib && lib.getDocument) return lib;
-  if (lib && lib.default && lib.default.getDocument) return lib.default;
-  return lib;
-};
-
-const initPdfWorker = () => {
-  try {
-    const lib = getPdfLib();
-    if (lib && lib.GlobalWorkerOptions) {
-      lib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+// --- PDF.js Initialization Helpers ---
+// Fixes "pdfjsLib.getDocument is not a function" by checking default vs named exports
+const getPdfLoader = () => {
+    if (pdfjsLib && (pdfjsLib as any).getDocument) {
+        return (pdfjsLib as any).getDocument;
     }
-  } catch (e) {
-    console.warn("PDF.js worker initialization delayed:", e);
-  }
+    if (pdfjsLib && (pdfjsLib as any).default && (pdfjsLib as any).default.getDocument) {
+        return (pdfjsLib as any).default.getDocument;
+    }
+    return null;
 };
+
+const getGlobalWorkerOptions = () => {
+    if (pdfjsLib && (pdfjsLib as any).GlobalWorkerOptions) {
+        return (pdfjsLib as any).GlobalWorkerOptions;
+    }
+    if (pdfjsLib && (pdfjsLib as any).default && (pdfjsLib as any).default.GlobalWorkerOptions) {
+        return (pdfjsLib as any).default.GlobalWorkerOptions;
+    }
+    return null;
+};
+
+const initializePdfJs = () => {
+  try {
+    const GlobalWorkerOptions = getGlobalWorkerOptions();
+    if (GlobalWorkerOptions) {
+      GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+    }
+  } catch (e) { console.warn("PDF.js worker initialization failed", e); }
+};
+initializePdfJs();
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
-const GRID_SIZE = 2; 
+const GRID_SIZE = 10; 
 const CANVAS_BASE_WIDTH = 960;
 const CANVAS_BASE_HEIGHT = 540;
 
 const safeClone = <T,>(obj: T): T => {
-  try {
-    return JSON.parse(JSON.stringify(obj));
-  } catch (e) {
-    return { ...obj } as T;
-  }
+  try { return JSON.parse(JSON.stringify(obj)); } 
+  catch (e) { return { ...obj } as T; }
 };
 
-const SlideFooter: React.FC<{ leftText?: string; rightText?: string; isThumbnail?: boolean }> = ({ leftText, rightText, isThumbnail }) => (
-  <div className={`absolute bottom-0 left-0 right-0 bg-[var(--primary)] flex items-center justify-between z-0 select-none ${isThumbnail ? 'h-[12%] px-6' : 'h-[12%] px-10'}`}>
-    <span className={`text-white font-black uppercase tracking-widest ${isThumbnail ? 'text-[24px]' : 'text-xl md:text-2xl'}`}>
+const SlideFooter: React.FC<{ leftText?: string; rightText?: string }> = React.memo(({ leftText, rightText }) => (
+  <div className="absolute bottom-0 left-0 right-0 bg-[var(--primary)] flex items-center justify-between h-[12%] px-10 z-0 select-none">
+    <span className="text-white font-black uppercase tracking-widest text-xl md:text-2xl">
       {leftText || 'VOLUNTEER TRAINING'}
     </span>
-    <span className={`text-white font-black uppercase tracking-widest ${isThumbnail ? 'text-[24px]' : 'text-xl md:text-2xl'}`}>
+    <span className="text-white font-black uppercase tracking-widest text-xl md:text-2xl">
       {rightText || '2026 IC'}
     </span>
   </div>
-);
+));
+
+const Ruler: React.FC<{ orientation: 'horizontal' | 'vertical'; scale: number; size: number }> = ({ orientation, scale, size }) => {
+  const ticks = [];
+  const step = 50;
+  for (let i = 0; i <= size; i += step) {
+    ticks.push(
+      <div 
+        key={i} 
+        className="absolute flex items-start"
+        style={{
+          [orientation === 'horizontal' ? 'left' : 'top']: `${i * scale}px`,
+          [orientation === 'horizontal' ? 'height' : 'width']: i % 100 === 0 ? '100%' : '50%',
+        }}
+      >
+        <div className={`bg-gray-300 ${orientation === 'horizontal' ? 'w-px h-full' : 'h-px w-full'}`} />
+        {i % 100 === 0 && (
+          <span className={`text-[8px] font-bold text-gray-400 select-none ${orientation === 'horizontal' ? 'ml-1 mt-1' : 'ml-1 mt-0.5'}`}>
+            {i}
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className={`relative bg-white/50 border-gray-100 ${orientation === 'horizontal' ? 'h-6 w-full border-b' : 'w-6 h-full border-r'}`}>
+      {ticks}
+    </div>
+  );
+};
 
 const SlideThumbnail: React.FC<{ slide: Slide; footerTextLeft?: string; footerTextRight?: string }> = ({ slide, footerTextLeft, footerTextRight }) => {
-  const SCALE = 0.18;
+  const scale = 192 / CANVAS_BASE_WIDTH;
   return (
     <div className="w-full h-full relative overflow-hidden bg-white">
       <div 
         style={{
           width: `${CANVAS_BASE_WIDTH}px`,
           height: `${CANVAS_BASE_HEIGHT}px`,
-          transform: `scale(${SCALE})`,
+          transform: `scale(${scale})`, 
           transformOrigin: 'top left',
           backgroundColor: slide.backgroundColor || '#ffffff',
           backgroundImage: slide.backgroundImage ? `url(${slide.backgroundImage})` : undefined,
@@ -88,19 +129,21 @@ const SlideThumbnail: React.FC<{ slide: Slide; footerTextLeft?: string; footerTe
                 zIndex: block.zIndex || 1,
                 transform: block.rotation ? `rotate(${block.rotation}deg)` : 'none',
                 backgroundColor: block.style?.backgroundColor,
-                borderRadius: block.style?.borderRadius ? `${block.style.borderRadius * 2}px` : undefined,
+                borderRadius: block.style?.borderRadius ? `${block.style.borderRadius * (1/scale)}px` : undefined,
                 opacity: block.style?.opacity,
-                border: block.style?.borderWidth ? `${block.style.borderWidth * 2}px solid ${block.style.borderColor || '#000'}` : 'none'
+                color: block.style?.color || 'inherit',
               }}
               className="overflow-hidden"
             >
                {block.type === 'text' && (
-                  <div className="w-full h-full p-2" style={{ fontSize: '32px', color: block.style?.color || 'inherit' }} dangerouslySetInnerHTML={{ __html: block.content }} />
+                  <div className="w-full h-full p-2" style={{ fontSize: '32px' }} dangerouslySetInnerHTML={{ __html: block.content }} />
                )}
-               {block.type === 'image' && block.content && <img src={block.content} className="w-full h-full object-cover" alt="" />}
+               {block.type === 'image' && block.content && (
+                  <img src={block.content} className="w-full h-full object-cover" alt="" />
+               )}
             </div>
          ))}
-         <SlideFooter leftText={footerTextLeft} rightText={footerTextRight} isThumbnail />
+         <SlideFooter leftText={footerTextLeft} rightText={footerTextRight} />
       </div>
     </div>
   );
@@ -109,47 +152,63 @@ const SlideThumbnail: React.FC<{ slide: Slide; footerTextLeft?: string; footerTe
 export const ModuleEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { addModule, updateModule, getModule, theme } = useAppContext();
+  const { addModule, updateModule, getModule } = useAppContext();
   
   const [formData, setFormData] = useState<Partial<Module>>({
-    title: '',
-    description: '',
-    category: 'UNCATEGORIZED',
-    thumbnail: '',
-    thumbnailSlideId: '',
-    footerTextLeft: 'VOLUNTEER TRAINING',
-    footerTextRight: '2026 IC',
-    slides: [],
-    quiz: { enabled: false, questions: [] },
-    stats: { views: 0, completions: 0 }
+    title: '', description: '', category: 'UNCATEGORIZED',
+    thumbnail: '', thumbnailSlideId: '',
+    footerTextLeft: 'VOLUNTEER TRAINING', footerTextRight: '2026 IC',
+    slides: [], quiz: { enabled: false, questions: [] }, stats: { views: 0, completions: 0 }
   });
 
+  const [history, setHistory] = useState<Partial<Module>[]>([]);
+  const [future, setFuture] = useState<Partial<Module>[]>([]);
   const [activeSectionId, setActiveSectionId] = useState<string>('');
   const [showPreview, setShowPreview] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isProcessingFile, setIsProcessingFile] = useState(false);
-  const [canvasScale, setCanvasScale] = useState(1);
-  
+  const [isProcessingPdf, setIsProcessingPdf] = useState(false);
+  const [canvasScale, setCanvasScale] = useState(0.85);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [initialBlockState, setInitialBlockState] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
-  const [editingTextId, setEditingTextId] = useState<string | null>(null);
-
   const [showGrid, setShowGrid] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(true);
+  const [fontSizeInput, setFontSizeInput] = useState('24');
 
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const resizeHandleRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const blockFileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    initPdfWorker();
+  const activeSlide = useMemo(() => formData.slides?.find(s => s.id === activeSectionId), [formData.slides, activeSectionId]);
+  const activeBlock = useMemo(() => activeSlide?.blocks?.find(b => b.id === selectedBlockId), [activeSlide, selectedBlockId]);
+
+  const updateStateWithHistory = useCallback((next: Partial<Module> | ((prev: Partial<Module>) => Partial<Module>)) => {
+    setFormData(prev => {
+      const updated = typeof next === 'function' ? next(prev) : next;
+      setHistory(h => [safeClone(prev), ...h].slice(0, 50));
+      setFuture([]);
+      return updated;
+    });
   }, []);
+
+  const updateBlock = useCallback((blockId: string, updates: Partial<SlideBlock>) => {
+    setFormData(prev => ({ 
+      ...prev, 
+      slides: prev.slides?.map(s => s.id === activeSectionId ? { 
+        ...s, 
+        blocks: s.blocks?.map(b => b.id === blockId ? { 
+          ...b, 
+          ...updates, 
+          style: { ...(b.style || {}), ...(updates.style || {}) } 
+        } : b) 
+      } : s) 
+    }));
+  }, [activeSectionId]);
 
   useEffect(() => {
     if (id) {
@@ -160,43 +219,201 @@ export const ModuleEditor: React.FC = () => {
       } else navigate('/admin');
     } else {
        const templateSlides = NEW_MODULE_TEMPLATE_SLIDES.map(s => ({
-         ...s,
-         id: generateId(),
-         layout: 'canvas' as const,
+         ...s, id: generateId(), layout: 'canvas' as const,
          blocks: s.blocks.map(b => ({ ...b, id: generateId(), type: b.type as BlockType }))
        }));
        setFormData(prev => ({ 
-         ...prev, 
-         title: 'New Training Module', 
-         category: 'UNCATEGORIZED',
-         slides: templateSlides as Slide[], 
-         thumbnailSlideId: templateSlides[0].id,
-         thumbnail: ''
+         ...prev, title: 'New Training Module', category: 'UNCATEGORIZED',
+         slides: templateSlides as Slide[], thumbnailSlideId: templateSlides[0].id, thumbnail: ''
        }));
        setActiveSectionId(templateSlides[0].id);
     }
   }, [id, getModule, navigate]);
 
-  useEffect(() => {
-    const handleResize = () => {
-      if (!canvasContainerRef.current) return;
-      const container = canvasContainerRef.current;
-      const padding = 80;
-      const availableWidth = container.clientWidth - padding;
-      const availableHeight = container.clientHeight - padding;
-      const scaleX = availableWidth / CANVAS_BASE_WIDTH;
-      const scaleY = availableHeight / CANVAS_BASE_HEIGHT;
-      setCanvasScale(Math.min(scaleX, scaleY, 1));
+  const addBlock = (type: BlockType) => {
+    const newBlock: SlideBlock = {
+      id: generateId(),
+      type,
+      content: type === 'text' ? '<h2>New Content</h2>' : '',
+      x: 30, y: 30, width: 40, height: 20,
+      zIndex: (activeSlide?.blocks?.length || 0) + 1,
+      style: { borderRadius: 0, opacity: 1, textAlign: 'left' }
     };
-    window.addEventListener('resize', handleResize);
-    handleResize();
-    return () => window.removeEventListener('resize', handleResize);
-  }, [activeSectionId]);
+    updateStateWithHistory(prev => ({
+      ...prev,
+      slides: prev.slides?.map(s => s.id === activeSectionId ? { ...s, blocks: [...(s.blocks || []), newBlock] } : s)
+    }));
+    setSelectedBlockId(newBlock.id);
+  };
 
-  const activeSlide = useMemo(() => 
-    formData.slides?.find(s => s.id === activeSectionId), 
-    [formData.slides, activeSectionId]
-  );
+  const deleteBlock = useCallback((blockId: string) => {
+    updateStateWithHistory(prev => ({ 
+      ...prev, 
+      slides: prev.slides?.map(s => s.id === activeSectionId ? { ...s, blocks: s.blocks?.filter(b => b.id !== blockId) } : s) 
+    }));
+    setSelectedBlockId(null);
+  }, [activeSectionId, updateStateWithHistory]);
+
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !formData) return;
+
+    setIsProcessingPdf(true);
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        
+        // Use helper to resolve the correct function from the imported module
+        const getDocument = getPdfLoader();
+        if (!getDocument) throw new Error("PDF.js library could not be loaded. Please refresh the page.");
+        
+        const pdf = await getDocument({ data: arrayBuffer }).promise;
+        const newSlides: Slide[] = [];
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const viewport = page.getViewport({ scale: 1.0 });
+            const { width: pageWidth, height: pageHeight } = viewport;
+            
+            const textContent = await page.getTextContent();
+            const operatorList = await page.getOperatorList();
+            
+            const blocks: SlideBlock[] = [];
+
+            // 1. Process Text with Formatting
+            const items = textContent.items.filter((item: any) => item.str.trim().length > 0);
+            
+            // Sort items: Top to Bottom (Y desc), then Left to Right (X asc)
+            items.sort((a: any, b: any) => {
+                const yA = a.transform[5];
+                const yB = b.transform[5];
+                if (Math.abs(yA - yB) > 8) return yB - yA; // Different lines
+                return a.transform[4] - b.transform[4]; // Same line
+            });
+
+            // Group into lines
+            const lines: any[][] = [];
+            let currentLine: any[] = [];
+            items.forEach((item: any) => {
+                if (currentLine.length === 0) {
+                    currentLine.push(item);
+                } else {
+                    const lastItem = currentLine[currentLine.length - 1];
+                    const yDiff = Math.abs(lastItem.transform[5] - item.transform[5]);
+                    if (yDiff < 8) {
+                        currentLine.push(item);
+                    } else {
+                        lines.push(currentLine);
+                        currentLine = [item];
+                    }
+                }
+            });
+            if (currentLine.length > 0) lines.push(currentLine);
+
+            // Create blocks from lines
+            lines.forEach((line, idx) => {
+                const firstItem = line[0];
+                const lastItem = line[line.length - 1];
+                const text = line.map((it: any) => it.str).join(' ');
+
+                // Extract Style
+                const pdfY = firstItem.transform[5];
+                const pdfX = firstItem.transform[4];
+                const fontSize = Math.abs(firstItem.transform[3]); // Transform[3] is roughly font size
+                const isBold = firstItem.fontName?.toLowerCase().includes('bold');
+                const isItalic = firstItem.fontName?.toLowerCase().includes('italic');
+
+                // Convert to %
+                const xPct = (pdfX / pageWidth) * 100;
+                // PDF Y is bottom-up. HTML Top is (PageHeight - PDF_Y - FontHeight)
+                const yPct = ((pageHeight - pdfY - fontSize) / pageHeight) * 100;
+                
+                // Estimate width
+                const widthPx = (lastItem.transform[4] + (lastItem.width || 0)) - pdfX;
+                const widthPct = Math.min(90, Math.max(10, (widthPx / pageWidth) * 100 * 1.1));
+
+                blocks.push({
+                    id: `pdf_txt_${Date.now()}_${i}_${idx}`,
+                    type: 'text',
+                    content: text,
+                    x: Math.max(0, Math.min(95, xPct)),
+                    y: Math.max(0, Math.min(95, yPct)),
+                    width: widthPct,
+                    height: Math.max(4, (fontSize * 1.5 / pageHeight) * 100),
+                    style: {
+                        fontSize: Math.max(12, Math.round(fontSize)),
+                        color: '#333333',
+                        textAlign: 'left',
+                        fontWeight: isBold ? 'bold' : 'normal',
+                        fontStyle: isItalic ? 'italic' : 'normal',
+                    }
+                });
+            });
+
+            // 2. Process Image Placeholders
+            // Check operator list for image painting operations
+            const paintImageOps = [82, 85, 86]; 
+            let hasImages = false;
+            
+            if (operatorList && operatorList.fnArray) {
+                 for (let op of operatorList.fnArray) {
+                     if (paintImageOps.includes(op)) {
+                         hasImages = true;
+                         break;
+                     }
+                 }
+            }
+
+            if (hasImages) {
+                blocks.push({
+                    id: `pdf_img_ph_${Date.now()}_${i}`,
+                    type: 'image',
+                    content: 'https://placehold.co/600x400/png?text=Image+Detected+-+Replace+Me',
+                    x: 25,
+                    y: 30, // Position loosely in middle
+                    width: 50,
+                    height: 40,
+                    style: {
+                        borderColor: '#f57f20',
+                        borderWidth: 2,
+                        opacity: 0.9,
+                        backgroundColor: '#f1f5f9'
+                    }
+                });
+            }
+
+            newSlides.push({
+                id: `pdf_slide_${Date.now()}_${i}`,
+                title: `Page ${i}`,
+                layout: 'canvas',
+                blocks: blocks,
+                content: ''
+            });
+        }
+
+        setFormData(prev => ({ ...prev, slides: [...(prev.slides || []), ...newSlides] }));
+    } catch (err) {
+        console.error("PDF Error", err);
+        alert("Could not process PDF. Ensure PDF.js is loaded correctly.");
+    } finally {
+        setIsProcessingPdf(false);
+    }
+};
+
+  const undo = () => {
+    if (history.length === 0) return;
+    const previous = history[0];
+    setHistory(h => h.slice(1));
+    setFuture(f => [safeClone(formData), ...f]);
+    setFormData(previous);
+  };
+
+  const redo = () => {
+    if (future.length === 0) return;
+    const next = future[0];
+    setFuture(f => f.slice(1));
+    setHistory(h => [safeClone(formData), ...h]);
+    setFormData(next);
+  };
 
   const handleSave = async () => {
     if (!formData.title) return alert('Title is required');
@@ -210,692 +427,573 @@ export const ModuleEditor: React.FC = () => {
         await addModule(moduleData);
       }
       navigate('/admin');
-    } catch (error: any) {
-      alert("Failed to save: " + error.message);
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (error: any) { alert("Failed to save: " + error.message); }
+    finally { setIsSaving(false); }
   };
 
-  const addSlide = (template: typeof SLIDE_TEMPLATES[0] | 'blank') => {
-    const newSlide: Slide = template === 'blank' 
-      ? { id: generateId(), title: 'Blank Slide', layout: 'canvas', blocks: [], content: '' }
-      : { 
-          id: generateId(), 
-          title: template.label, 
-          layout: 'canvas', 
-          blocks: template.blocks.map(b => ({ ...b, id: generateId(), type: b.type as BlockType })), 
-          content: '' 
-        };
-    
-    setFormData(prev => ({ ...prev, slides: [...(prev.slides || []), newSlide] }));
-    setActiveSectionId(newSlide.id);
-    setShowTemplateModal(false);
-  };
-
-  const duplicateSlide = () => {
-    if (!activeSlide) return;
-    const newSlide = safeClone(activeSlide);
-    newSlide.id = generateId();
-    newSlide.blocks = (newSlide.blocks || []).map(b => ({ ...b, id: generateId() }));
-    
-    const currentIdx = formData.slides?.findIndex(s => s.id === activeSectionId) ?? -1;
-    const newSlides = [...(formData.slides || [])];
-    newSlides.splice(currentIdx + 1, 0, newSlide);
-    
-    setFormData(prev => ({ ...prev, slides: newSlides }));
-    setActiveSectionId(newSlide.id);
-  };
-
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    setIsProcessingFile(true);
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const lib = getPdfLib();
-      const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
-      const newSlides: Slide[] = [];
-
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1 });
-        const textContent = await page.getTextContent();
-        
-        const items = textContent.items as any[];
-        const slideBlocks: SlideBlock[] = [];
-        
-        // Advanced Grouping: Group items by horizontal and vertical proximity
-        const lines: Record<number, any[]> = {};
-        items.forEach(item => {
-          const y = Math.round(item.transform[5]);
-          if (!lines[y]) lines[y] = [];
-          lines[y].push(item);
-        });
-
-        const sortedY = Object.keys(lines).map(Number).sort((a, b) => b - a);
-        
-        let currentGroup: { y: number, items: any[] }[] = [];
-        const Y_THRESHOLD = viewport.height * 0.08; 
-
-        const createBlockFromItems = (groupedLines: { y: number, items: any[] }[]) => {
-            if (groupedLines.length === 0) return null;
-            
-            let minX = viewport.width;
-            let maxX = 0;
-            let minY = viewport.height;
-            let maxY = 0;
-            
-            groupedLines.forEach(line => {
-                line.items.forEach(it => {
-                   const x = it.transform[4];
-                   const y = viewport.height - it.transform[5];
-                   const w = it.width;
-                   const h = it.height || 14;
-                   
-                   minX = Math.min(minX, x);
-                   maxX = Math.max(maxX, x + w);
-                   minY = Math.min(minY, y - h);
-                   maxY = Math.max(maxY, y);
-                });
-            });
-
-            // Map to percentage (avoid edges)
-            const xPct = Math.max(8, Math.min(85, (minX / viewport.width) * 100));
-            const yPct = Math.max(8, Math.min(80, (minY / viewport.height) * 100));
-            const wPct = Math.min(85, ((maxX - minX) / viewport.width) * 100 + 4);
-            const hPct = Math.min(75, ((maxY - minY) / viewport.height) * 100 + 4);
-
-            let html = '';
-            groupedLines.forEach((line, idx) => {
-                const sortedItems = line.items.sort((a, b) => a.transform[4] - b.transform[4]);
-                const lineText = sortedItems.map(it => it.str).join(' ');
-                if (lineText.trim()) {
-                   // Heuristic for headers: shorter lines at the top of a group
-                   if (idx === 0 && (lineText.length < 40 || groupedLines.length === 1)) {
-                      html += `<h2 style="color: ${theme.primary}; font-weight: 800; font-size: 28px; line-height: 1.2; margin-bottom: 12px;">${lineText}</h2>`;
-                   } else {
-                      html += `<p style="font-size: 16px; line-height: 1.5; margin-bottom: 6px; color: ${theme.text};">${lineText}</p>`;
-                   }
-                }
-            });
-
-            if (!html || html.replace(/<[^>]*>/g, '').trim().length === 0) return null;
-
-            return {
-                id: generateId(),
-                type: 'text' as BlockType,
-                x: Math.round(xPct),
-                y: Math.round(yPct),
-                width: Math.round(Math.max(wPct, 25)),
-                height: Math.round(Math.max(hPct, 8)),
-                content: html,
-                zIndex: slideBlocks.length + 1,
-                style: { padding: 10 }
-            };
-        };
-
-        sortedY.forEach((y) => {
-            const line = { y, items: lines[y] };
-            if (currentGroup.length === 0) {
-                currentGroup.push(line);
-            } else {
-                const lastY = currentGroup[currentGroup.length - 1].y;
-                // If the vertical distance is too large, start a new block
-                if (Math.abs(lastY - y) < Y_THRESHOLD) {
-                    currentGroup.push(line);
-                } else {
-                    const blk = createBlockFromItems(currentGroup);
-                    if (blk) slideBlocks.push(blk);
-                    currentGroup = [line];
-                }
-            }
-        });
-
-        const lastBlk = createBlockFromItems(currentGroup);
-        if (lastBlk) slideBlocks.push(lastBlk);
-
-        const slide: Slide = {
-          id: generateId(),
-          title: `Document Page ${i}`,
-          layout: 'canvas',
-          blocks: slideBlocks,
-          content: '',
-          backgroundColor: '#ffffff'
-        };
-        newSlides.push(slide);
-      }
-
-      setFormData(prev => ({ ...prev, slides: [...(prev.slides || []), ...newSlides] }));
-      if (newSlides.length > 0) setActiveSectionId(newSlides[0].id);
-    } catch (err) {
-      console.error(err);
-      alert("Failed to process document spatial layout.");
-    } finally {
-      setIsProcessingFile(false);
-      if (pdfInputRef.current) pdfInputRef.current.value = '';
-    }
-  };
-
-  const deleteSlide = (slideId: string) => {
-    if ((formData.slides?.length || 0) <= 1) return alert("Modules must have at least one slide.");
-    const newSlides = formData.slides?.filter(s => s.id !== slideId) || [];
-    setFormData(prev => ({ 
-      ...prev, 
-      slides: newSlides, 
-      thumbnailSlideId: prev.thumbnailSlideId === slideId ? newSlides[0]?.id : prev.thumbnailSlideId 
-    }));
-    if (activeSectionId === slideId) setActiveSectionId(newSlides[0].id);
-  };
-
-  const addBlock = (type: BlockType) => {
-    if (activeSectionId === 'quiz') return;
-    const newBlock: SlideBlock = { 
-      id: generateId(), 
-      type, 
-      content: type === 'text' ? '<h2 style="font-size: 24px;">New Text Item</h2>' : '', 
-      x: 35, y: 35, width: 30, height: 20, 
-      zIndex: (activeSlide?.blocks?.length || 0) + 1, 
-      style: type === 'shape' ? { backgroundColor: '#E5E7EB', borderRadius: 8 } : {} 
-    };
-    setFormData(prev => ({ 
-      ...prev, 
-      slides: prev.slides?.map(s => s.id === activeSectionId ? { ...s, blocks: [...(s.blocks || []), newBlock] } : s) 
-    }));
-    setSelectedBlockId(newBlock.id);
-  };
-
-  const updateBlock = (blockId: string, updates: Partial<SlideBlock>) => {
-    setFormData(prev => ({ 
-      ...prev, 
-      slides: prev.slides?.map(s => s.id === activeSectionId ? { 
-        ...s, 
-        blocks: s.blocks?.map(b => b.id === blockId ? { ...b, ...updates } : b) 
-      } : s) 
-    }));
-  };
-
-  const deleteBlock = (blockId: string) => {
-    setFormData(prev => ({ 
-      ...prev, 
-      slides: prev.slides?.map(s => s.id === activeSectionId ? { 
-        ...s, 
-        blocks: s.blocks?.filter(b => b.id !== blockId) 
-      } : s) 
-    }));
-    setSelectedBlockId(null);
-  };
-
-  const handleMouseDown = (e: React.MouseEvent, blockId: string, handle?: string) => {
-    if (editingTextId) return;
-    e.stopPropagation(); 
-    const block = activeSlide?.blocks?.find(b => b.id === blockId);
-    if (!block || !canvasRef.current) return;
-    
-    setSelectedBlockId(blockId);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setInitialBlockState({ x: block.x || 0, y: block.y || 0, w: block.width || 20, h: block.height || 20 });
-    
-    if (handle) {
-      setIsResizing(true);
-      resizeHandleRef.current = handle;
-    } else {
-      setIsDragging(true);
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const throttledMouseMove = useMemo(() => throttle((clientX: number, clientY: number) => {
     if ((!isDragging && !isResizing) || !selectedBlockId || !initialBlockState || !canvasRef.current) return;
-    
     const containerRect = canvasRef.current.getBoundingClientRect();
-    let deltaXPct = ((e.clientX - dragStart.x) / containerRect.width) * 100;
-    let deltaYPct = ((e.clientY - dragStart.y) / containerRect.height) * 100;
+    let deltaXPct = ((clientX - dragStart.x) / (containerRect.width || 1)) * 100;
+    let deltaYPct = ((clientY - dragStart.y) / (containerRect.height || 1)) * 100;
 
     if (isDragging) {
       let nextX = initialBlockState.x + deltaXPct;
       let nextY = initialBlockState.y + deltaYPct;
       if (snapToGrid) {
-        nextX = Math.round(nextX / GRID_SIZE) * GRID_SIZE;
-        nextY = Math.round(nextY / GRID_SIZE) * GRID_SIZE;
+        nextX = Math.round(nextX / (GRID_SIZE / 10)) * (GRID_SIZE / 10);
+        nextY = Math.round(nextY / (GRID_SIZE / 10)) * (GRID_SIZE / 10);
       }
       updateBlock(selectedBlockId, { x: nextX, y: nextY });
     } else if (isResizing) {
       const handle = resizeHandleRef.current;
       let { x, y, w, h: hi } = initialBlockState;
-      
       if (handle?.includes('e')) w += deltaXPct;
       if (handle?.includes('w')) { x += deltaXPct; w -= deltaXPct; }
       if (handle?.includes('s')) hi += deltaYPct;
       if (handle?.includes('n')) { y += deltaYPct; hi -= deltaYPct; }
-
-      if (snapToGrid) {
-        w = Math.round(w / GRID_SIZE) * GRID_SIZE;
-        hi = Math.round(hi / GRID_SIZE) * GRID_SIZE;
-        x = Math.round(x / GRID_SIZE) * GRID_SIZE;
-        y = Math.round(y / GRID_SIZE) * GRID_SIZE;
-      }
       updateBlock(selectedBlockId, { x, y, width: Math.max(w, 2), height: Math.max(hi, 2) });
     }
+  }, 16), [isDragging, isResizing, selectedBlockId, initialBlockState, dragStart, snapToGrid, updateBlock]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => throttledMouseMove(e.clientX, e.clientY);
+    const onMouseUp = () => { setIsDragging(false); setIsResizing(false); };
+    if (isDragging || isResizing) {
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    }
+    return () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [isDragging, isResizing, throttledMouseMove]);
+
+  const addSlide = (template: typeof SLIDE_TEMPLATES[0] | 'blank') => {
+    const newSlide: Slide = template === 'blank' 
+      ? { id: generateId(), title: 'Blank Slide', layout: 'canvas', blocks: [], content: '' }
+      : { 
+          id: generateId(), title: template.label, layout: 'canvas', 
+          blocks: template.blocks.map(b => ({ ...b, id: generateId(), type: b.type as BlockType })), 
+          content: '' 
+        };
+    updateStateWithHistory(prev => ({ ...prev, slides: [...(prev.slides || []), newSlide] }));
+    setActiveSectionId(newSlide.id);
+    setShowTemplateModal(false);
   };
 
-  const handleGlobalMouseUp = () => {
-    setIsDragging(false);
-    setIsResizing(false);
+  const handleMouseDown = (e: React.MouseEvent, blockId: string, handle?: string) => {
+    if (handle) {
+      e.stopPropagation();
+      const block = activeSlide?.blocks?.find(b => b.id === blockId);
+      if (!block || !canvasRef.current) return;
+      setSelectedBlockId(blockId);
+      setDragStart({ x: e.clientX, y: e.clientY });
+      setInitialBlockState({ x: block.x || 0, y: block.y || 0, w: block.width || 20, h: block.height || 20 });
+      setIsResizing(true);
+      resizeHandleRef.current = handle;
+      return;
+    }
+
+    // Default behavior for selecting and dragging the block
+    e.stopPropagation(); 
+    const block = activeSlide?.blocks?.find(b => b.id === blockId);
+    if (!block || !canvasRef.current) return;
+    setSelectedBlockId(blockId);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setInitialBlockState({ x: block.x || 0, y: block.y || 0, w: block.width || 20, h: block.height || 20 });
+    setIsDragging(true);
   };
 
-  const handleThumbnailFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const applyFontSize = (size: string) => {
+    if (!size) return;
+    restoreGlobalSelection(true);
+    // Use execCommand with styleWithCSS for pixel-perfect results
+    document.execCommand('styleWithCSS', false, 'true');
+    // We use a dummy fontSize '7' then swap it for actual pixels in the active editor
+    document.execCommand('fontSize', false, '7');
+    
+    // Get the editor instance to clean up the <font> tags it might have produced
+    const editor = document.activeElement as HTMLDivElement;
+    if (editor && editor.contentEditable === 'true') {
+      const fonts = editor.getElementsByTagName('font');
+      for (let i = 0; i < fonts.length; i++) {
+        const font = fonts[i];
+        if (font.getAttribute('size') === '7') {
+          font.removeAttribute('size');
+          font.style.fontSize = size + 'px';
+        }
+      }
+      // Manually trigger 'input' so React state updates
+      const event = new Event('input', { bubbles: true });
+      editor.dispatchEvent(event);
+    }
+    saveGlobalSelection();
+  };
+
+  const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, thumbnail: reader.result as string }));
+        updateStateWithHistory({ ...formData, thumbnail: reader.result as string, thumbnailSlideId: '' });
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const ColorInput = ({ label, value, onChange }: { label: string, value: string, onChange: (v: string) => void }) => {
-    const palette = [theme.primary, theme.accent, '#FFFFFF', '#000000', '#F3F4F6', '#EF4444', '#10B981', '#3B82F6'];
-    
-    return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-gray-500">{label}</span>
-          <div className="relative group flex items-center gap-2">
-            <div 
-              className="w-10 h-10 rounded-xl border-2 border-gray-100 shadow-sm overflow-hidden flex items-center justify-center cursor-pointer transition-transform active:scale-95"
-              style={{ backgroundColor: value }}
-            >
-              <input 
-                type="color" 
-                value={value || '#ffffff'} 
-                onChange={e => onChange(e.target.value)} 
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" 
-              />
-            </div>
-            <span className="text-[10px] font-mono font-bold text-gray-400 uppercase">{value}</span>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {palette.map(c => (
-            <button 
-              key={c}
-              onClick={() => onChange(c)}
-              className={`w-6 h-6 rounded-md border border-gray-100 transition-transform hover:scale-110 active:scale-90 ${value === c ? 'ring-2 ring-[var(--primary)] ring-offset-1' : ''}`}
-              style={{ backgroundColor: c }}
-            />
-          ))}
-        </div>
-      </div>
-    );
+  const handleBlockImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && selectedBlockId) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        updateBlock(selectedBlockId, { content: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
-  if (showPreview) return (
-    <div className="fixed inset-0 z-[100] bg-white overflow-y-auto">
-      <button onClick={() => setShowPreview(false)} className="fixed top-6 right-6 z-[110] bg-gray-900 text-white px-8 py-3 rounded-2xl font-black shadow-2xl hover:scale-105 transition-all">
-        EXIT PREVIEW
-      </button>
-      <ModuleViewer previewModule={formData as Module} onExitPreview={() => setShowPreview(false)} />
-    </div>
+  const RibbonButton = ({ icon, onClick, title, active = false }: any) => (
+    <button
+      onMouseDown={e => e.preventDefault()}
+      onClick={onClick}
+      className={`p-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${active ? 'bg-orange-100 text-[var(--primary)]' : 'hover:bg-gray-100 text-gray-500'}`}
+      title={title}
+    >
+      {icon}
+    </button>
   );
 
   return (
-    <div 
-      className="h-screen flex flex-col bg-gray-100 select-none overflow-hidden theme-transition" 
-      onMouseUp={handleGlobalMouseUp} 
-      onMouseMove={handleMouseMove}
-    >
-      <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleThumbnailFileChange} />
-      <input type="file" ref={pdfInputRef} className="hidden" accept=".pdf" onChange={handlePdfUpload} />
-      
-      {isProcessingFile && (
-        <div className="fixed inset-0 z-[250] bg-black/40 backdrop-blur-sm flex items-center justify-center">
-           <div className="bg-white p-12 rounded-[3rem] shadow-2xl flex flex-col items-center gap-6">
-              <Loader2 className="animate-spin text-[var(--primary)]" size={48} />
-              <p className="font-black text-xs uppercase tracking-[0.2em] text-gray-500">Extracting Layout...</p>
-           </div>
-        </div>
-      )}
-
-      <header className="h-16 bg-white border-b flex justify-between items-center px-6 z-[60] shrink-0 shadow-sm">
-        <div className="flex items-center gap-4 flex-1 text-left">
-          <button onClick={() => navigate('/admin')} className="p-2.5 hover:bg-gray-50 rounded-xl text-gray-400 hover:text-[var(--primary)] transition-all">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="h-8 w-px bg-gray-100" />
+    <div className="h-screen flex flex-col bg-[#EBEDF0] select-none overflow-hidden font-sans text-left">
+      <header className="h-14 bg-white border-b flex justify-between items-center px-4 z-[100] shrink-0 shadow-sm">
+        <div className="flex items-center gap-4 flex-1">
+          <button onClick={() => navigate('/admin')} className="p-2 hover:bg-gray-50 rounded-lg text-gray-400"><ArrowLeft size={18} /></button>
+          <div className="h-6 w-px bg-gray-100" />
           <input 
             type="text" 
             value={formData.title || ''} 
-            onChange={e => setFormData({ ...formData, title: e.target.value })} 
-            className="text-xl font-black bg-transparent outline-none w-full max-w-md text-gray-900 tracking-tight placeholder:text-gray-200" 
-            placeholder="Untitled Module" 
+            onChange={e => updateStateWithHistory({ ...formData, title: e.target.value })} 
+            className="text-sm font-black bg-transparent outline-none w-full max-w-xs text-gray-900 placeholder:text-gray-300" 
+            placeholder="Untitled Training Module" 
           />
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setShowPreview(true)} className="px-6 py-2.5 text-gray-500 hover:bg-gray-50 rounded-xl flex items-center gap-2 font-bold transition-all">
-            <Eye size={20} /> Preview
-          </button>
-          <button 
-            onClick={handleSave} 
-            disabled={isSaving}
-            className="bg-[var(--primary)] text-white px-8 py-2.5 rounded-xl flex items-center gap-2 font-black shadow-lg shadow-orange-100 transition-all active:scale-95 disabled:opacity-50"
-          >
-            {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />} Save
-          </button>
+        
+        <div className="flex items-center gap-4">
+           <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100 mr-4">
+              <button onClick={() => setCanvasScale(Math.max(0.25, canvasScale - 0.1))} className="p-1.5 hover:bg-white rounded-lg text-gray-400 hover:text-gray-900 transition-all"><ZoomOut size={16} /></button>
+              <div className="flex items-center gap-2 px-2 border-x border-gray-100">
+                 <input 
+                  type="range" 
+                  min="25" max="200" 
+                  value={canvasScale * 100} 
+                  onChange={e => setCanvasScale(parseInt(e.target.value) / 100)} 
+                  className="w-20 accent-[var(--primary)]"
+                 />
+                 <span className="text-[10px] font-black w-8 text-center text-gray-500">{Math.round(canvasScale * 100)}%</span>
+              </div>
+              <button onClick={() => setCanvasScale(Math.min(2, canvasScale + 0.1))} className="p-1.5 hover:bg-white rounded-lg text-gray-400 hover:text-gray-900 transition-all"><ZoomIn size={16} /></button>
+           </div>
+           
+           <button onClick={() => setShowPreview(true)} className="px-5 py-2 text-gray-500 hover:bg-gray-50 rounded-xl flex items-center gap-2 font-bold text-xs"><Eye size={16} /> Preview</button>
+           <button onClick={handleSave} className="bg-[var(--primary)] text-white px-8 py-2 rounded-xl flex items-center gap-2 font-black shadow-lg shadow-orange-100 text-xs transition-all">
+              {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save
+           </button>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-24 bg-white border-r flex flex-col items-center py-6 gap-6 shrink-0 z-50 overflow-y-auto custom-scrollbar shadow-sm">
-             <ToolButton icon={<Plus size={24} />} label="Add Slide" onClick={() => setShowTemplateModal(true)} />
-             <ToolButton icon={<Copy size={24} />} label="Duplicate" onClick={duplicateSlide} />
-             <ToolButton icon={<FileUp size={24} />} label="Upload PDF" onClick={() => pdfInputRef.current?.click()} />
-             <div className="w-12 h-px bg-gray-100" />
-             <ToolButton icon={<TypeIcon size={24} />} label="Text" onClick={() => addBlock('text')} />
-             <ToolButton icon={<ImageIcon size={24} />} label="Image" onClick={() => addBlock('image')} />
-             <ToolButton icon={<Square size={24} />} label="Shape" onClick={() => addBlock('shape')} />
-             <ToolButton icon={<Youtube size={24} />} label="Video" onClick={() => addBlock('youtube')} />
-             <ToolButton icon={<CheckCircle size={24} />} label="Quiz" onClick={() => setActiveSectionId('quiz')} active={activeSectionId === 'quiz'} />
+      {/* Ribbon Bar (Formatting) */}
+      <div className="h-14 bg-white border-b flex items-center px-6 gap-3 z-[90] shrink-0 shadow-sm overflow-x-auto custom-scrollbar">
+         <div className="flex items-center gap-1.5 pr-4 border-r border-gray-100">
+            <select 
+              className="text-[11px] font-bold bg-gray-50 border border-gray-100 outline-none px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-100"
+              onChange={(e) => applyGlobalCommand('fontName', e.target.value)}
+              defaultValue=""
+            >
+              <option value="" disabled>Font Family</option>
+              <option value="'Poppins', sans-serif">Poppins</option>
+              <option value="Arial">Arial</option>
+              <option value="Georgia">Georgia</option>
+              <option value="'Courier New', monospace">Courier New</option>
+            </select>
+
+            <div className="relative flex items-center">
+               <div className="relative">
+                  <select 
+                    className="appearance-none bg-gray-50 border border-gray-100 text-[11px] font-bold px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-100 pr-10 w-24"
+                    onChange={(e) => {
+                        setFontSizeInput(e.target.value);
+                        applyFontSize(e.target.value);
+                    }}
+                    value={fontSizeInput}
+                  >
+                     <option value="" disabled>Size</option>
+                     {[8,9,10,11,12,14,16,18,20,24,28,32,36,48,64,72,96,120,150,200].map(s => (
+                        <option key={s} value={s}>{s}px</option>
+                     ))}
+                  </select>
+                  <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
+               </div>
+            </div>
+         </div>
+
+         <div className="flex items-center gap-1 pr-4 border-r border-gray-100">
+            <RibbonButton icon={<Bold size={18} />} onClick={() => applyGlobalCommand('bold')} title="Bold" />
+            <RibbonButton icon={<Italic size={18} />} onClick={() => applyGlobalCommand('italic')} title="Italic" />
+            <RibbonButton icon={<Underline size={18} />} onClick={() => applyGlobalCommand('underline')} title="Underline" />
+         </div>
+
+         <div className="flex items-center gap-1 pr-4 border-r border-gray-100">
+            <RibbonButton icon={<AlignLeft size={18} />} onClick={() => applyGlobalCommand('justifyLeft')} title="Left" />
+            <RibbonButton icon={<AlignCenter size={18} />} onClick={() => applyGlobalCommand('justifyCenter')} title="Center" />
+            <RibbonButton icon={<AlignRight size={18} />} onClick={() => applyGlobalCommand('justifyRight')} title="Right" />
+            <RibbonButton icon={<AlignJustify size={18} />} onClick={() => applyGlobalCommand('justifyFull')} title="Justify" />
+         </div>
+
+         <div className="flex items-center gap-1 pr-4 border-r border-gray-100">
+            <RibbonButton icon={<List size={18} />} onClick={() => applyGlobalCommand('insertUnorderedList')} title="Bullets" />
+         </div>
+
+         <div className="flex items-center gap-2 pr-4 border-r border-gray-100">
+            <div className="w-8 h-8 rounded-lg overflow-hidden border border-gray-100 shadow-sm relative">
+                <input 
+                type="color" 
+                className="absolute inset-0 w-[150%] h-[150%] -top-[25%] -left-[25%] cursor-pointer border-none p-0"
+                onChange={(e) => applyGlobalCommand('foreColor', e.target.value)}
+                title="Text Color"
+                />
+            </div>
+         </div>
+
+         <div className="ml-auto flex items-center gap-3">
+            <RibbonButton icon={<RotateCcw size={16} />} onClick={undo} title="Undo" />
+            <RibbonButton icon={<RotateCw size={16} />} onClick={redo} title="Redo" />
+         </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden relative">
+        <aside className="w-16 bg-white border-r flex flex-col items-center py-6 gap-6 shrink-0 z-50 shadow-sm">
+             <ToolButton icon={<Plus size={22} />} onClick={() => setShowTemplateModal(true)} title="Add Slide" />
+             <div className="w-8 h-px bg-gray-100" />
+             <input type="file" ref={pdfInputRef} className="hidden" accept="application/pdf" onChange={handlePdfUpload} />
+             <ToolButton icon={<FileUp size={22} />} onClick={() => pdfInputRef.current?.click()} title="Import PDF" />
+             <ToolButton icon={<TypeIcon size={22} />} onClick={() => addBlock('text')} title="Text Block" />
+             <ToolButton icon={<ImageIcon size={22} />} onClick={() => addBlock('image')} title="Image" />
+             <ToolButton icon={<Shapes size={22} />} onClick={() => addBlock('svg')} title="Shape/SVG" />
+             <ToolButton icon={<Square size={22} />} onClick={() => addBlock('shape')} title="Background Box" />
+             <ToolButton icon={<Youtube size={22} />} onClick={() => addBlock('youtube')} title="Video Player" />
         </aside>
 
-        <main ref={canvasContainerRef} className="flex-1 bg-gray-50 relative overflow-hidden flex flex-col items-center justify-center p-4 transition-all">
-          {activeSectionId === 'quiz' ? (
-             <div className="bg-white p-12 rounded-[3rem] shadow-2xl w-full max-w-4xl h-fit border border-gray-100 overflow-y-auto max-h-full custom-scrollbar text-left">
-                <div className="flex justify-between items-center mb-10">
-                  <h3 className="text-3xl font-black text-gray-900 tracking-tighter">Knowledge Check</h3>
-                  <label className="flex items-center gap-3 cursor-pointer group">
-                    <input 
-                      type="checkbox" 
-                      checked={formData.quiz?.enabled} 
-                      onChange={e => setFormData(p => ({...p, quiz: {...p.quiz!, enabled: e.target.checked}}))} 
-                      className="accent-[var(--primary)] w-6 h-6 rounded-lg transition-all" 
-                    />
-                    <span className="font-black text-gray-500 uppercase tracking-widest text-xs">Enabled</span>
-                  </label>
+        <div className="flex-1 flex flex-col relative overflow-hidden">
+          <div className="h-6 flex shrink-0 bg-white z-20">
+             <div className="w-6 shrink-0 border-b border-r border-gray-200 bg-gray-50" />
+             <div className="flex-1 relative overflow-hidden bg-white border-b border-gray-100">
+                <div 
+                   className="absolute"
+                   style={{ left: `calc(50% - ${(CANVAS_BASE_WIDTH * canvasScale) / 2}px)` }}
+                >
+                   <Ruler orientation="horizontal" scale={canvasScale} size={CANVAS_BASE_WIDTH} />
                 </div>
-                
-                {formData.quiz?.enabled ? (
-                  <div className="space-y-8">
-                    {formData.quiz.questions.map((q, qi) => (
-                      <div key={q.id} className="bg-gray-50/50 p-8 rounded-[2rem] border border-gray-100 relative group text-left">
-                        <button onClick={() => setFormData(p => ({...p, quiz: {...p.quiz!, questions: p.quiz!.questions.filter(qu => qu.id !== q.id)}}))} className="absolute top-6 right-6 text-gray-300 hover:text-red-500 transition-colors">
-                          <Trash2 size={20} />
-                        </button>
-                        <div className="mb-6">
-                          <label className="text-[10px] font-black text-gray-400 uppercase mb-3 block tracking-[0.2em]">Question {qi+1}</label>
-                          <input 
-                            value={q.text} 
-                            onChange={e => setFormData(p => ({...p, quiz: {...p.quiz!, questions: p.quiz!.questions.map(qu => qu.id === q.id ? {...qu, text: e.target.value} : qu)}}))} 
-                            className="w-full p-4 rounded-2xl border-none ring-1 ring-gray-100 focus:ring-4 focus:ring-orange-100 bg-white font-bold text-lg outline-none shadow-sm" 
-                            placeholder="Enter question text..." 
-                          />
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {q.options.map((opt, oi) => (
-                            <div key={oi} className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all ${q.correctOptionIndex === oi ? 'bg-orange-50 border-[var(--primary)]/30' : 'bg-white border-gray-50'}`}>
-                              <input 
-                                type="radio" 
-                                checked={q.correctOptionIndex === oi} 
-                                onChange={() => setFormData(p => ({...p, quiz: {...p.quiz!, questions: p.quiz!.questions.map(qu => qu.id === q.id ? {...qu, correctOptionIndex: oi} : qu)}}))} 
-                                className="accent-[var(--primary)] w-5 h-5 cursor-pointer" 
-                              />
-                              <input 
-                                value={opt} 
-                                onChange={e => {
-                                  const newOpts = [...q.options]; 
-                                  newOpts[oi] = e.target.value; 
-                                  setFormData(p => ({...p, quiz: {...p.quiz!, questions: p.quiz!.questions.map(qu => qu.id === q.id ? {...qu, options: newOpts} : qu)}}))
-                                }} 
-                                className="flex-1 bg-transparent border-none outline-none font-bold text-gray-700 placeholder:text-gray-200" 
-                                placeholder={`Option ${oi+1}`} 
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    <button onClick={() => setFormData(p => ({...p, quiz: {...p.quiz!, questions: [...p.quiz!.questions, {id: generateId(), text: '', options: ['','','',''], correctOptionIndex: 0}]}}))} className="w-full py-10 border-4 border-dashed border-gray-100 rounded-[3rem] text-gray-300 font-black uppercase tracking-widest hover:text-[var(--primary)] hover:border-[var(--primary)]/30 hover:bg-orange-50 transition-all">
-                      + Add Question
-                    </button>
-                  </div>
-                ) : (
-                  <div className="py-32 flex flex-col items-center justify-center text-gray-200 gap-6">
-                    <FileText size={80} className="opacity-20" />
-                    <p className="font-black uppercase tracking-[0.4em] text-2xl text-center">Quiz is Disabled</p>
-                  </div>
-                )}
              </div>
-          ) : activeSlide ? (
-            <div 
-              className="relative shadow-2xl bg-white border border-gray-100"
-              style={{ width: `${CANVAS_BASE_WIDTH}px`, height: `${CANVAS_BASE_HEIGHT}px`, transform: `scale(${canvasScale})` }}
-            >
-               <div ref={canvasRef} className="w-full h-full relative overflow-hidden" style={{ backgroundColor: activeSlide.backgroundColor || '#ffffff' }} onMouseDown={() => { setSelectedBlockId(null); setEditingTextId(null); }}>
-                  {showGrid && <div className="absolute inset-0 pointer-events-none opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#000 2px, transparent 2px)', backgroundSize: `${GRID_SIZE}% ${GRID_SIZE * (16/9)}%` }} />}
-                  {activeSlide.blocks?.map(block => (
+          </div>
+
+          <div className="flex-1 flex overflow-hidden">
+             <div className="w-6 flex-col shrink-0 relative overflow-hidden bg-white border-r border-gray-100 z-20">
+                <div 
+                   className="absolute"
+                   style={{ top: `calc(50% - ${(CANVAS_BASE_HEIGHT * canvasScale) / 2}px)` }}
+                >
+                   <Ruler orientation="vertical" scale={canvasScale} size={CANVAS_BASE_HEIGHT} />
+                </div>
+             </div>
+
+             <main 
+               className="flex-1 relative overflow-auto p-96 custom-scrollbar flex items-center justify-center bg-[#EBEDF0]" 
+               onMouseDown={() => { setSelectedBlockId(null); }}
+             >
+                <div 
+                   ref={canvasRef}
+                   className="bg-white shadow-2xl relative shrink-0 transition-transform origin-center"
+                   style={{ 
+                     width: `${CANVAS_BASE_WIDTH}px`, 
+                     height: `${CANVAS_BASE_HEIGHT}px`, 
+                     transform: `scale(${canvasScale})`,
+                     backgroundColor: activeSlide?.backgroundColor || '#ffffff'
+                   }}
+                >
+                  {showGrid && <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }} />}
+                  
+                  {activeSlide?.blocks?.map(block => (
                     <div 
                       key={block.id} 
                       onMouseDown={(e) => handleMouseDown(e, block.id)} 
-                      onDoubleClick={(e) => { e.stopPropagation(); block.type === 'text' && setEditingTextId(block.id); }}
-                      className={`absolute group cursor-move ${selectedBlockId === block.id ? 'ring-2 ring-[var(--primary)] z-50 shadow-2xl' : 'hover:ring-1 hover:ring-gray-300'}`} 
-                      style={{ left: `${block.x}%`, top: `${block.y}%`, width: `${block.width}%`, height: `${block.height}%`, zIndex: block.zIndex || 1, backgroundColor: block.style?.backgroundColor, borderRadius: `${block.style?.borderRadius || 0}px`, opacity: block.style?.opacity }}
+                      className={`absolute group ${selectedBlockId === block.id ? 'ring-2 ring-[var(--primary)] z-50 shadow-2xl' : 'hover:ring-1 hover:ring-gray-300'}`} 
+                      style={{ 
+                        left: `${block.x}%`, top: `${block.y}%`, width: `${block.width}%`, height: `${block.height}%`, 
+                        zIndex: block.zIndex || 1, backgroundColor: block.style?.backgroundColor, borderRadius: `${block.style?.borderRadius || 0}px`, 
+                        opacity: block.style?.opacity, color: block.style?.color || 'inherit',
+                        textAlign: (block.style?.textAlign as any) || 'inherit'
+                      }}
                     >
-                        <div className="w-full h-full overflow-hidden text-left">
+                        <div 
+                          className="w-full h-full overflow-hidden text-left relative"
+                          onMouseDown={e => {
+                            // Only stop propagation if we click inside the text while the block is ALREADY selected
+                            // This allows highlight logic to work without triggering drag
+                            if (selectedBlockId === block.id) e.stopPropagation();
+                          }}
+                        >
                             {block.type === 'text' ? (
-                              editingTextId === block.id ? (
-                                <div className="h-full bg-white ring-4 ring-[var(--primary)] shadow-2xl overflow-hidden" onMouseDown={e => e.stopPropagation()}>
-                                  <RichTextEditor initialContent={block.content} onChange={html => updateBlock(block.id, { content: html })} onClose={() => setEditingTextId(null)} />
-                                </div>
-                              ) : (
-                                <div className="p-4 prose max-w-none pointer-events-none select-none slide-typography" dangerouslySetInnerHTML={{ __html: block.content }} />
-                              )
+                                <RichTextEditor 
+                                    isActive={selectedBlockId === block.id}
+                                    initialContent={block.content} 
+                                    onChange={html => updateBlock(block.id, { content: html })} 
+                                    className={`p-2 h-full w-full ${selectedBlockId === block.id ? 'cursor-text' : 'cursor-move'}`}
+                                />
                             ) : block.type === 'image' && block.content ? (
                                 <img src={block.content} className="w-full h-full object-cover pointer-events-none" alt="" />
                             ) : (
                                 <div className="w-full h-full bg-gray-50 flex items-center justify-center text-gray-200 border-2 border-dashed border-gray-100">
-                                    {block.type === 'image' ? <ImageIcon size={48} /> : block.type === 'youtube' ? <Youtube size={48} /> : null}
+                                    {block.type === 'image' ? <ImageIcon size={32} /> : block.type === 'youtube' ? <Youtube size={32} /> : block.type === 'svg' ? <Shapes size={32} /> : null}
                                 </div>
                             )}
                         </div>
-                        {selectedBlockId === block.id && !editingTextId && (
+
+                        {selectedBlockId === block.id && (
                             <>
                                 {['nw', 'ne', 'sw', 'se'].map(h => (
-                                    <div key={h} className="absolute w-5 h-5 bg-white border-2 border-[var(--primary)] rounded-md shadow-xl z-[60]" style={{ top: h.includes('n') ? -8 : 'auto', bottom: h.includes('s') ? -8 : 'auto', left: h.includes('w') ? -8 : 'auto', right: h.includes('e') ? -8 : 'auto', cursor: `${h}-resize` }} onMouseDown={e => handleMouseDown(e, block.id, h)} />
+                                    <div 
+                                      key={h} 
+                                      className="absolute w-3 h-3 bg-white border-2 border-[var(--primary)] rounded shadow z-[60]" 
+                                      style={{ 
+                                        top: h.includes('n') ? -6 : 'auto', 
+                                        bottom: h.includes('s') ? -6 : 'auto', 
+                                        left: h.includes('w') ? -6 : 'auto', 
+                                        right: h.includes('e') ? -6 : 'auto', 
+                                        cursor: `${h}-resize` 
+                                      }} 
+                                      onMouseDown={e => handleMouseDown(e, block.id, h)} 
+                                    />
                                 ))}
-                                <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white rounded-2xl flex items-center gap-2 p-1.5 shadow-2xl">
-                                   <button onClick={(e) => {e.stopPropagation(); updateBlock(block.id, { zIndex: (block.zIndex || 1) + 1 });}} className="p-2 hover:bg-white/20 rounded-xl transition-colors" title="Layer Up"><Layers size={16} /></button>
-                                   <div className="w-px h-4 bg-white/10" />
-                                   <button onClick={(e) => {e.stopPropagation(); deleteBlock(block.id);}} className="p-2 hover:bg-red-500 rounded-xl text-red-400 hover:text-white transition-all" title="Remove"><Trash2 size={16} /></button>
+                                <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white rounded-xl flex items-center gap-1 p-1 shadow-2xl z-[70]">
+                                   <button onClick={(e) => {e.stopPropagation(); updateBlock(block.id, { zIndex: (block.zIndex || 1) + 1 });}} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"><Layers size={14} /></button>
+                                   <button onClick={(e) => {e.stopPropagation(); deleteBlock(block.id);}} className="p-1.5 hover:bg-red-500 rounded-lg text-red-400 hover:text-white transition-all"><Trash2 size={14} /></button>
                                 </div>
                             </>
                         )}
                     </div>
                   ))}
                   <SlideFooter leftText={formData.footerTextLeft} rightText={formData.footerTextRight} />
-               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-6 text-gray-300">
-              <Loader2 size={48} className="animate-spin text-gray-200" />
-              <p className="font-black uppercase tracking-widest text-sm text-center">Initializing Workspace...</p>
-            </div>
-          )}
-        </main>
-
-        <aside className="w-80 bg-white border-l p-8 shrink-0 z-50 text-left overflow-y-auto custom-scrollbar shadow-sm">
-          {editingTextId ? (
-            <div className="space-y-8 text-left">
-               <div className="flex items-center gap-3 text-[var(--primary)] mb-8">
-                  <TypeIcon size={22} strokeWidth={3} />
-                  <h3 className="text-sm font-black uppercase tracking-[0.2em]">Text Formatting</h3>
-              </div>
-              <TextToolbar onClose={() => setEditingTextId(null)} />
-            </div>
-          ) : selectedBlockId && activeSlide?.blocks?.find(b => b.id === selectedBlockId) ? (
-             <div className="space-y-8 text-left">
-                <div className="flex items-center gap-3 text-[var(--primary)] mb-8">
-                    <Settings2 size={22} strokeWidth={3} />
-                    <h3 className="text-sm font-black uppercase tracking-[0.2em]">Properties</h3>
                 </div>
-                
-                {activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.type === 'image' && (
-                    <div className="space-y-4">
-                        <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Image Source</label>
+             </main>
+          </div>
+        </div>
+
+        <aside className="w-72 bg-white border-l p-6 shrink-0 z-50 text-left overflow-y-auto custom-scrollbar shadow-sm">
+           {selectedBlockId && activeBlock ? (
+              <div className="space-y-8 animate-in fade-in duration-300">
+                 <div className="flex items-center gap-3 text-gray-900 mb-6">
+                    <Settings2 size={18} strokeWidth={3} />
+                    <h3 className="text-sm font-black uppercase tracking-widest">Properties</h3>
+                 </div>
+                 
+                 <div className="space-y-4">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Positioning</label>
+                    <div className="grid grid-cols-2 gap-3">
+                       <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                          <div className="text-[8px] font-bold text-gray-400 uppercase">X Position</div>
+                          <div className="text-sm font-black text-gray-900">{Math.round(activeBlock.x || 0)}%</div>
+                       </div>
+                       <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                          <div className="text-[8px] font-bold text-gray-400 uppercase">Y Position</div>
+                          <div className="text-sm font-black text-gray-900">{Math.round(activeBlock.y || 0)}%</div>
+                       </div>
+                    </div>
+                 </div>
+
+                 {activeBlock.type === 'image' && (
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Image Source</label>
+                       
+                       {activeBlock.content ? (
+                        <div className="relative group aspect-video rounded-xl overflow-hidden border-2 border-gray-100 mb-3">
+                          <img src={activeBlock.content} className="w-full h-full object-cover" alt="Selected" />
+                          <button 
+                            onClick={() => updateBlock(selectedBlockId, { content: '' })}
+                            className="absolute inset-0 bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest"
+                          >
+                            <Trash2 size={14} /> Remove Image
+                          </button>
+                        </div>
+                      ) : (
+                        <div 
+                          onClick={() => blockFileInputRef.current?.click()}
+                          className="aspect-video rounded-xl border-2 border-dashed border-gray-100 flex flex-col items-center justify-center text-gray-300 hover:text-[var(--primary)] hover:border-[var(--primary)]/30 cursor-pointer transition-all gap-2 bg-gray-50 mb-3"
+                        >
+                          <ImagePlus size={24} />
+                          <span className="text-[9px] font-black uppercase tracking-widest">Upload from Device</span>
+                        </div>
+                      )}
+                      
+                      <input 
+                        ref={blockFileInputRef}
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={handleBlockImageUpload} 
+                      />
+                      
+                      <div className="relative">
                         <input 
                           type="text" 
-                          value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.content} 
+                          value={activeBlock.content.startsWith('data:') ? 'Local Image' : activeBlock.content} 
                           onChange={e => updateBlock(selectedBlockId!, { content: e.target.value })} 
-                          className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs outline-none focus:ring-4 focus:ring-orange-100 transition-all font-medium" 
+                          className="w-full p-4 bg-gray-50 border border-gray-100 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-orange-100 transition-all pr-10" 
                           placeholder="Paste image URL here..." 
                         />
-                    </div>
-                )}
-
-                <div className="pt-8 border-t border-gray-50 text-left space-y-8">
-                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Appearance</label>
-                    <ColorInput 
-                      label="Fill Color" 
-                      value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.backgroundColor || '#ffffff'} 
-                      onChange={v => updateBlock(selectedBlockId!, { style: { ...activeSlide?.blocks?.find(b => b.id === selectedBlockId!)?.style, backgroundColor: v } })} 
-                    />
-                    <div className="space-y-3">
-                        <div className="flex justify-between text-xs font-bold text-gray-500">
-                            <span>Rounded Corners</span>
-                            <span>{activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.borderRadius || 0}px</span>
-                        </div>
-                        <input type="range" min="0" max="100" value={activeSlide?.blocks?.find(b => b.id === selectedBlockId)?.style?.borderRadius || 0} onChange={e => updateBlock(selectedBlockId!, { style: { ...activeSlide?.blocks?.find(b => b.id === selectedBlockId!)?.style, borderRadius: parseInt(e.target.value) } })} className="w-full accent-[var(--primary)]" />
-                    </div>
-                </div>
-
-                <button onClick={() => deleteBlock(selectedBlockId!)} className="w-full py-5 text-red-500 font-black text-xs uppercase tracking-widest bg-red-50 rounded-[2rem] mt-12 hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100">
-                  Remove Element
-                </button>
-             </div>
-          ) : (
-             <div className="space-y-10 text-left">
-                <div className="flex items-center gap-3 text-gray-300 mb-8">
-                    <MousePointer2 size={22} strokeWidth={3} />
-                    <h3 className="text-sm font-black uppercase tracking-[0.2em]">Editor</h3>
-                </div>
-
-                <div className="space-y-8 text-left">
-                  {/* Category Selection */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-4">
-                       <Tag size={16} className="text-[var(--primary)]" />
-                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Module Category</label>
-                    </div>
-                    <select 
-                      value={formData.category}
-                      onChange={e => setFormData({ ...formData, category: e.target.value as ModuleCategory })}
-                      className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-orange-100 transition-all cursor-pointer"
-                    >
-                      <option value="UNCATEGORIZED">Uncategorized</option>
-                      <option value="GVM">General Volunteer (GVM)</option>
-                      <option value="CCVM">Convention Committee (CCVM)</option>
-                      <option value="HCVM">Hospitality Committee (HCVM)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center gap-2 mb-4">
-                       <ImagePlus size={16} className="text-[var(--primary)]" />
-                       <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Cover Image</label>
-                    </div>
-                    {formData.thumbnail ? (
-                      <div className="relative group mb-3 aspect-video rounded-2xl overflow-hidden border-2 border-orange-100 shadow-lg">
-                        <img src={formData.thumbnail} className="w-full h-full object-cover" alt="Cover preview" />
-                        <button onClick={() => setFormData({ ...formData, thumbnail: '' })} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-white font-black text-[10px] uppercase tracking-widest">Clear Custom Image</button>
+                        <ImageIcon size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
                       </div>
-                    ) : (
-                      <div className="mb-3 aspect-video rounded-2xl bg-gray-50 border-2 border-dashed border-gray-100 flex items-center justify-center text-gray-300 text-[10px] font-black uppercase px-6 text-center leading-relaxed">Using automatic slide thumbnail</div>
-                    )}
-                    <div className="flex flex-col gap-3">
-                        <button onClick={() => fileInputRef.current?.click()} className="w-full py-4 bg-orange-50 text-[var(--primary)] rounded-2xl border-2 border-[var(--primary)]/10 flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest hover:bg-orange-100 transition-all">
-                           <Upload size={16} /> Upload Image File
-                        </button>
                     </div>
-                  </div>
+                 )}
+
+                 <div className="pt-8 border-t border-gray-50 space-y-6">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Visual Style</label>
+                    <div className="space-y-4">
+                       <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase"><span>Border Radius</span><span className="text-gray-900">{activeBlock.style?.borderRadius || 0}px</span></div>
+                       <input type="range" min="0" max="100" value={activeBlock.style?.borderRadius || 0} onChange={e => updateBlock(selectedBlockId!, { style: { ...activeBlock.style, borderRadius: parseInt(e.target.value) } })} className="w-full accent-[var(--primary)]" />
+                    </div>
+                    <div className="space-y-4">
+                       <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase"><span>Opacity</span><span className="text-gray-900">{Math.round((activeBlock.style?.opacity || 1) * 100)}%</span></div>
+                       <input type="range" min="0" max="100" value={(activeBlock.style?.opacity || 1) * 100} onChange={e => updateBlock(selectedBlockId!, { style: { ...activeBlock.style, opacity: parseInt(e.target.value) / 100 } })} className="w-full accent-[var(--primary)]" />
+                    </div>
+                 </div>
+              </div>
+           ) : (
+              <div className="space-y-10 animate-in fade-in duration-300">
+                <div className="flex items-center gap-3 text-gray-300 mb-6">
+                    <MousePointer2 size={18} strokeWidth={3} />
+                    <h3 className="text-[10px] font-black uppercase tracking-widest">Canvas Settings</h3>
+                </div>
+                
+                <div className="space-y-4">
+                   <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Slide Category</label>
+                   <select 
+                    value={formData.category} 
+                    onChange={e => updateStateWithHistory({ ...formData, category: e.target.value as ModuleCategory })} 
+                    className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-xs font-bold outline-none cursor-pointer hover:bg-white transition-colors"
+                   >
+                     <option value="UNCATEGORIZED">Uncategorized</option>
+                     <option value="GVM">General Volunteer (GVM)</option>
+                     <option value="CCVM">Convention Committee (CCVM)</option>
+                     <option value="HCVM">Hospitality Committee (HCVM)</option>
+                   </select>
                 </div>
 
-                <div className="pt-8 border-t border-gray-50 space-y-6 text-left">
-                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Slide Options</label>
-                    <ColorInput 
-                      label="Background" 
-                      value={activeSlide?.backgroundColor || '#ffffff'} 
-                      onChange={v => setFormData(p => ({...p, slides: p.slides?.map(s => s.id === activeSectionId ? {...s, backgroundColor: v} : s)}))} 
-                    />
+                <div className="pt-8 border-t border-gray-50 space-y-6">
+                   <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Module Cover Image</label>
+                   <div className="space-y-3">
+                      {formData.thumbnail ? (
+                        <div className="relative group aspect-video rounded-xl overflow-hidden border-2 border-gray-100">
+                          <img src={formData.thumbnail} className="w-full h-full object-cover" alt="Cover" />
+                          <button 
+                            onClick={() => updateStateWithHistory({ ...formData, thumbnail: '' })}
+                            className="absolute inset-0 bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest"
+                          >
+                            <Trash2 size={14} /> Remove Cover
+                          </button>
+                        </div>
+                      ) : (
+                        <div 
+                          onClick={() => fileInputRef.current?.click()}
+                          className="aspect-video rounded-xl border-2 border-dashed border-gray-100 flex flex-col items-center justify-center text-gray-300 hover:text-[var(--primary)] hover:border-[var(--primary)]/30 cursor-pointer transition-all gap-2 bg-gray-50"
+                        >
+                          <ImagePlus size={24} />
+                          <span className="text-[9px] font-black uppercase tracking-widest">Upload from Device</span>
+                        </div>
+                      )}
+                      <input 
+                        ref={fileInputRef}
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={handleThumbnailUpload} 
+                      />
+                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 pt-8 border-t border-gray-50 text-left">
-                    <button onClick={() => setShowGrid(!showGrid)} className={`py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 border-2 transition-all ${showGrid ? 'bg-orange-50 text-[var(--primary)] border-[var(--primary)]/30 shadow-lg shadow-orange-100' : 'bg-white text-gray-400 border-gray-100'}`}>
-                      <Grid3X3 size={18} /> {showGrid ? 'Hide Grid' : 'Show Grid'}
-                    </button>
-                    <button onClick={() => setSnapToGrid(!snapToGrid)} className={`py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 border-2 transition-all ${snapToGrid ? 'bg-orange-50 text-[var(--primary)] border-[var(--primary)]/30 shadow-lg shadow-orange-100' : 'bg-white text-gray-400 border-gray-100'}`}>
-                      <Hash size={18} /> {snapToGrid ? 'Snapping On' : 'Snapping Off'}
-                    </button>
+                <div className="pt-8 border-t border-gray-50 space-y-4">
+                   <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest block">Canvas View</label>
+                   <div className="flex flex-col gap-3">
+                      <button onClick={() => setShowGrid(!showGrid)} className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 border-2 transition-all ${showGrid ? 'bg-orange-50 text-[var(--primary)] border-[var(--primary)]/10' : 'bg-white text-gray-400 border-gray-50'}`}>
+                         <Grid3X3 size={16} /> Grid Visibility {showGrid ? 'On' : 'Off'}
+                      </button>
+                      <button onClick={() => setSnapToGrid(!snapToGrid)} className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 border-2 transition-all ${snapToGrid ? 'bg-orange-50 text-[var(--primary)] border-[var(--primary)]/10' : 'bg-white text-gray-400 border-gray-50'}`}>
+                         <Hash size={16} /> Snap-to-Grid {snapToGrid ? 'On' : 'Off'}
+                      </button>
+                   </div>
                 </div>
-             </div>
-          )}
+              </div>
+           )}
         </aside>
       </div>
 
-      <footer className="h-48 bg-white border-t flex items-center px-10 gap-10 overflow-x-auto shrink-0 z-[60] shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.08)] custom-scrollbar">
+      <footer className="h-44 bg-white border-t flex items-center px-10 gap-8 overflow-x-auto shrink-0 z-[60] shadow-inner custom-scrollbar">
           {formData.slides?.map((slide, idx) => (
-             <div key={slide.id} onClick={() => setActiveSectionId(slide.id)} className={`w-64 h-36 border-[4px] rounded-[2.5rem] cursor-pointer relative shrink-0 overflow-hidden group transition-all duration-500 ${activeSectionId === slide.id ? 'border-[var(--primary)] shadow-2xl scale-110 -translate-y-2' : 'border-gray-50 opacity-60 hover:opacity-100'}`}>
+             <div key={slide.id} onClick={() => setActiveSectionId(slide.id)} className={`w-52 h-32 border-4 rounded-[2rem] cursor-pointer relative shrink-0 overflow-hidden group transition-all duration-300 ${activeSectionId === slide.id ? 'border-[var(--primary)] shadow-2xl scale-110 -translate-y-2' : 'border-gray-50 opacity-60 hover:opacity-100'}`}>
                 <SlideThumbnail slide={slide} footerTextLeft={formData.footerTextLeft} footerTextRight={formData.footerTextRight} />
-                <div className="absolute top-4 left-4 bg-black/60 text-white text-[10px] font-black px-4 py-1.5 rounded-xl backdrop-blur-md z-10 tracking-[0.2em]">{idx + 1}</div>
-                <div className="absolute bottom-4 left-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 z-30">
-                    <button onClick={(e) => { e.stopPropagation(); deleteSlide(slide.id); }} className="w-full bg-white rounded-2xl py-2.5 shadow-2xl border-2 border-gray-50 text-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2">
-                      <Trash size={18} /> Delete
-                    </button>
-                </div>
+                <div className="absolute top-3 left-3 bg-black/60 text-white text-[9px] font-black px-3 py-1.5 rounded-lg backdrop-blur-md tracking-widest shadow-lg">{idx + 1}</div>
              </div>
           ))}
-          <button onClick={() => setShowTemplateModal(true)} className="w-64 h-36 border-4 border-dashed border-gray-100 rounded-[2.5rem] flex flex-col items-center justify-center text-gray-300 hover:text-[var(--primary)] hover:border-[var(--primary)]/30 hover:bg-orange-50 transition-all shrink-0 font-black uppercase text-xs tracking-[0.3em] gap-4 group">
-            <div className="p-4 bg-gray-50 rounded-2xl group-hover:bg-white group-hover:shadow-xl transition-all"><Plus size={36} strokeWidth={3} /></div>
-            New Slide
+          <button onClick={() => setShowTemplateModal(true)} className="w-52 h-32 border-2 border-dashed border-gray-100 rounded-[2rem] flex flex-col items-center justify-center text-gray-300 hover:text-[var(--primary)] hover:border-[var(--primary)]/30 transition-all shrink-0 font-black uppercase text-[10px] tracking-widest gap-3 group bg-white">
+             <Plus size={24} />
           </button>
       </footer>
 
       {showTemplateModal && (
-        <div className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-2xl flex items-center justify-center p-8">
-          <div className="bg-white rounded-[4rem] shadow-2xl w-full max-w-6xl p-20 relative overflow-hidden text-left">
-             <div className="absolute top-0 right-0 w-[40rem] h-[40rem] bg-orange-50 rounded-full -mr-[20rem] -mt-[20rem] blur-[10rem] opacity-40"></div>
-             <div className="flex justify-between items-center mb-16 relative z-10">
-                <div>
-                  <h3 className="text-5xl font-black text-gray-900 tracking-tighter mb-2">Select Layout</h3>
-                  <p className="text-gray-400 font-medium text-lg">Choose a starting point for your new slide.</p>
-                </div>
-                <button onClick={() => setShowTemplateModal(false)} className="p-5 bg-gray-50 hover:bg-red-50 hover:text-red-500 rounded-full transition-all"><X size={40} /></button>
-             </div>
-             <div className="grid grid-cols-1 md:grid-cols-4 gap-8 relative z-10">
+        <div className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-lg flex items-center justify-center p-8">
+          <div className="bg-white rounded-[4rem] shadow-2xl w-full max-w-5xl p-16 relative">
+             <button onClick={() => setShowTemplateModal(false)} className="absolute top-10 right-10 p-4 bg-gray-50 hover:bg-red-50 rounded-full transition-all">
+                <X size={32} />
+             </button>
+             <h3 className="text-4xl font-black text-gray-900 mb-12">Select Slide Layout</h3>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 {SLIDE_TEMPLATES.map((t, i) => (
-                    <button key={i} onClick={() => addSlide(t)} className="p-10 border-4 border-gray-50 rounded-[3rem] text-left hover:border-[var(--primary)]/30 hover:bg-orange-50/20 transition-all group relative h-full flex flex-col">
-                        <div className="w-20 h-20 bg-white rounded-[1.5rem] shadow-xl flex items-center justify-center text-gray-200 group-hover:text-[var(--primary)] mb-10 transition-colors"><LayoutTemplate size={40} /></div>
-                        <div className="font-black text-2xl text-gray-900 mb-4 group-hover:text-[var(--primary)] transition-colors">{t.label}</div>
-                        <div className="text-sm text-gray-400 font-medium leading-relaxed flex-1">{t.description}</div>
-                        <ChevronRight className="mt-6 text-gray-200 group-hover:text-[var(--primary)]" />
+                    <button key={i} onClick={() => addSlide(t)} className="p-8 border-2 border-gray-100 rounded-[2.5rem] text-left hover:border-[var(--primary)]/30 hover:bg-orange-50 transition-all group">
+                       <LayoutTemplate size={32} className="text-gray-300 group-hover:text-[var(--primary)] mb-6" />
+                       <div className="font-black text-xl mb-2">{t.label}</div>
+                       <div className="text-xs text-gray-400 font-medium">{t.description}</div>
                     </button>
                 ))}
-                <button onClick={() => addSlide('blank')} className="p-10 border-4 border-dashed border-gray-100 rounded-[3rem] flex flex-col items-center justify-center text-gray-300 font-black uppercase tracking-[0.2em] hover:border-[var(--primary)]/40 hover:bg-orange-50/20 hover:text-[var(--primary)] transition-all gap-6 group">
-                    <div className="p-8 bg-gray-50 rounded-3xl group-hover:bg-white group-hover:shadow-2xl transition-all"><Plus size={64} strokeWidth={3} /></div>
-                    Blank Slide
+                <button onClick={() => addSlide('blank')} className="p-8 border-2 border-dashed border-gray-100 rounded-[2.5rem] flex flex-col items-center justify-center text-gray-300 font-black uppercase tracking-widest hover:border-[var(--primary)]/40 hover:text-[var(--primary)] transition-all gap-6">
+                   <Plus size={48} /> Blank Slide
                 </button>
              </div>
           </div>
         </div>
       )}
+
+      {showPreview && (
+        <div className="fixed inset-0 z-[110] bg-white">
+          <ModuleViewer previewModule={formData as Module} onExitPreview={() => setShowPreview(false)} />
+        </div>
+      )}
+
+      {isProcessingPdf && (
+          <div className="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center text-white">
+              <Loader2 size={48} className="animate-spin mb-4" />
+              <h3 className="text-xl font-black uppercase tracking-widest">Converting PDF...</h3>
+          </div>
+      )}
     </div>
   );
 };
 
-const ToolButton = ({ icon, label, onClick, active }: any) => (
-  <button onClick={onClick} className={`flex flex-col items-center gap-2 group p-2 rounded-2xl w-20 transition-all ${active ? 'bg-orange-50' : 'hover:bg-gray-50'}`}>
-     <div className={`w-14 h-14 rounded-2xl border-2 flex items-center justify-center transition-all ${active ? 'bg-white border-[var(--primary)] text-[var(--primary)] shadow-2xl shadow-orange-100' : 'bg-white border-gray-50 text-gray-400 group-hover:border-gray-200 group-hover:text-gray-600 shadow-sm'}`}>
-      {icon}
-     </div>
-     <span className={`text-[10px] font-black uppercase tracking-widest ${active ? 'text-[var(--primary)]' : 'text-gray-400 group-hover:text-gray-600'} text-center truncate w-full`}>{label}</span>
+const ToolButton = ({ icon, onClick, active, title }: any) => (
+  <button 
+    onClick={onClick} 
+    title={title}
+    className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all ${active ? 'bg-orange-50 text-[var(--primary)] shadow-sm' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-50'}`}
+  >
+    {icon}
   </button>
 );

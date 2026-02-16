@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../contexts/AppContext';
-import { ShieldCheck, ArrowRight, Loader2, AlertCircle, BookOpen } from 'lucide-react';
+import { ArrowRight, Loader2, AlertCircle, BookOpen } from 'lucide-react';
+import { Philippines2026Logo } from './LandingPage';
 
 export const LoginPage: React.FC = () => {
   const [code, setCode] = useState('');
@@ -33,15 +34,16 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 md:p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 md:p-6 relative overflow-hidden text-left">
       {/* Background Decorative Elements */}
       <div className="absolute top-0 right-0 w-[20rem] md:w-[40rem] h-[20rem] md:h-[40rem] bg-orange-100/30 rounded-full -mr-[10rem] md:-mr-[20rem] -mt-[10rem] md:-mt-[20rem] blur-[5rem] md:blur-[10rem] animate-pulse"></div>
       <div className="absolute bottom-0 left-0 w-[15rem] md:w-[30rem] h-[15rem] md:h-[30rem] bg-blue-100/20 rounded-full -ml-[8rem] md:-ml-[15rem] -mb-[8rem] md:-mb-[15rem] blur-[4rem] md:blur-[8rem]"></div>
 
       <div className="w-full max-w-xl relative z-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
         <div className="bg-white rounded-[2.5rem] md:rounded-[3.5rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.15)] p-8 md:p-16 border border-gray-100 text-center">
-          <div className="w-20 h-20 md:w-24 md:h-24 bg-[var(--primary)] rounded-2xl md:rounded-[2rem] flex items-center justify-center text-white mx-auto mb-6 md:mb-10 shadow-2xl shadow-orange-200">
-            <ShieldCheck className="w-10 h-10 md:w-12 md:h-12" strokeWidth={2.5} />
+          <div className="w-24 h-24 md:w-36 md:h-36 bg-white rounded-2xl md:rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 md:mb-10 shadow-xl border border-gray-50 overflow-hidden relative group">
+             <div className="absolute inset-0 bg-gradient-to-br from-orange-50/50 to-white opacity-50"></div>
+             <Philippines2026Logo className="w-20 h-20 md:w-32 md:h-32 relative z-10" />
           </div>
 
           <h1 className="text-3xl md:text-5xl font-black text-gray-900 tracking-tighter mb-3 md:mb-4">
@@ -86,7 +88,6 @@ export const LoginPage: React.FC = () => {
           </form>
 
           <div className="mt-12 md:mt-16 pt-8 md:pt-10 border-t border-gray-50 flex items-center justify-center gap-3 text-gray-300">
-             {/* Fixed: Removed md:size prop */}
              <BookOpen size={16} />
              <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em]">ICPH2026 Secure Learning</span>
           </div>

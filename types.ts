@@ -41,7 +41,7 @@ export interface SlideMedia {
   name?: string;
 }
 
-export type BlockType = 'text' | 'image' | 'video' | 'youtube' | 'shape' | 'plain-text';
+export type BlockType = 'text' | 'image' | 'video' | 'youtube' | 'shape' | 'plain-text' | 'svg';
 
 export interface ElementStyle {
   backgroundColor?: string;
@@ -57,12 +57,14 @@ export interface ElementStyle {
   fontStyle?: string;
   textDecoration?: string;
   fontFamily?: string;
+  // Added textAlign property to fix missing property errors in ModuleEditor
+  textAlign?: string;
 }
 
 export interface SlideBlock {
   id: string;
   type: BlockType;
-  content: string; // HTML for text, raw string for plain-text, URL for media
+  content: string; // HTML for text, raw string for plain-text/svg, URL for media
   
   // Positioning (Percentages 0-100)
   x?: number;
